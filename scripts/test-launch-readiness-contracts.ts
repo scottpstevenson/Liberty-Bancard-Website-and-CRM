@@ -1,3 +1,4 @@
+import { libertyProductionTracking, LIBERTY_TRACKING } from "../shared/liberty-tracking-config";
 import { publicTrackingReadiness } from "../shared/public-tracking-readiness";
 import { lintRules } from "../server/services/message-copy-lint";
 import assert from "node:assert/strict";
@@ -10,6 +11,8 @@ import { isQueueSelectedByBackgroundProfile, useCanonicalSequenceRunner, getJobC
 
 let checks = 0;
 const check = (condition: unknown, label: string) => { assert(condition, label); checks++; console.log("PASS " + label); };
+check(libertyProductionTracking({}).VITE_GOOGLE_TAG_ID === LIBERTY_TRACKING.VITE_GOOGLE_TAG_ID, "The Liberty measurement destination uses its serving tag ID");
+check(libertyProductionTracking({ VITE_GA4_MEASUREMENT_ID: "G-OTHER123" }).VITE_GOOGLE_TAG_ID === "G-OTHER123", "Changing the destination does not inherit Liberty's serving tag");
 check(publicTrackingReadiness({}).ga4 === "missing", "Missing public account IDs remain explicitly missing");
 check(publicTrackingReadiness({ VITE_GA_ID: "G-FIXTURE123", VITE_FB_PIXEL_ID: "1234", VITE_GOOGLE_ADS_LEAD_CONVERSION: "AW-123/label" }).googleAdsLead === "configured", "Build readiness validates public IDs without claiming delivery");
 check(publicTrackingReadiness({ VITE_GOOGLE_ADS_LEAD_CONVERSION: "G-FIXTURE123" }).googleAdsLead === "invalid", "GA4 ID cannot masquerade as an Ads conversion action");
@@ -42,7 +45,7 @@ try {
 } finally { if (oldProfile === undefined) delete process.env.BACKGROUND_JOB_PROFILE; else process.env.BACKGROUND_JOB_PROFILE = oldProfile; }
 
 // Bundle the actual two client entry points with public fixture IDs. Execute in a VM with network-free browser sinks.
-const bundle = await build({ stdin: { contents: 'export * from "./client/src/lib/tracking"; export * from "./client/src/lib/utm"; export { trackConversion as compatibilityConversion } from "./client/src/lib/analytics";', resolveDir: process.cwd() }, bundle: true, write: false, platform: "browser", format: "cjs", define: { "import.meta.env": JSON.stringify({ VITE_GA4_MEASUREMENT_ID: "G-FIXTURE123", VITE_FB_PIXEL_ID: "123456789", VITE_GOOGLE_ADS_LEAD_CONVERSION: "AW-123456/fixture_label" }) } });
+const bundle = await build({ stdin: { contents: 'export * from "./client/src/lib/tracking"; export * from "./client/src/lib/utm"; export { trackConversion as compatibilityConversion } from "./client/src/lib/analytics";', resolveDir: process.cwd() }, bundle: true, write: false, platform: "browser", format: "cjs", define: { "import.meta.env": JSON.stringify({ VITE_GA4_MEASUREMENT_ID: "G-FIXTURE123", VITE_GOOGLE_TAG_ID: "G-LOADER123", VITE_FB_PIXEL_ID: "123456789", VITE_GOOGLE_ADS_LEAD_CONVERSION: "AW-123456/fixture_label" }) } });
 const calls: any[][] = [], pixels: any[][] = [], scripts: any[] = [];
 const context: any = { URL, URLSearchParams, module: { exports: {} }, exports: {}, console, document: { head: { appendChild: (v: any) => scripts.push(v) }, createElement: () => ({}), getElementsByTagName: () => [] }, window: { location: { pathname: "/get-started" }, gtag: (...args: any[]) => calls.push(args), fbq: (...args: any[]) => pixels.push(args), dataLayer: [] } };
 vm.runInNewContext(bundle.outputFiles[0].text, context);
@@ -67,7 +70,7 @@ check(calls.filter(c => c[0] === "event").length === previousEvents && pixelEven
 t.applyConsentPreferences({ analytics: true, marketing: false });
 t.trackConversion("get_started_submission", undefined, "receipt-three");
 check(calls.filter(c => c[0] === "event" && c[1] === "generate_lead").length === 2 && pixelEvents() === previousPixels, "Analytics-only consent does not emit ad events");
-check(scripts.some(s => String(s.src).includes("G-FIXTURE123")), "Compiled client initializes the configured GA4 tag");
+check(scripts.some(s => String(s.src).endsWith("/gtag/js?id=G-LOADER123")) && !scripts.some(s => String(s.src).endsWith("/gtag/js?id=G-FIXTURE123")), "Compiled client loads the serving tag without requesting a script for the destination");
 console.log(`LAUNCH_READINESS_CONTRACTS_PASS ${checks}`);
 
 // Route/consent acceptance uses the compiled production owner, without vendor network access.
@@ -85,6 +88,10 @@ console.log(`LAUNCH_READINESS_CONTRACTS_PASS ${checks}`);
   check(!vendor.some(v => v[0] === 'event'), 'Denied initial route records no page view');
   api.applyConsentPreferences({ analytics: true, marketing: false });
   check(loaded.length === 1 && vendor.filter(v => v[1] === 'page_view').length === 1, 'Consent grant initializes one loader and one current-page view');
+  check(vendor.some(v => v[0] === 'config' && v[1] === 'G-LOADER123' && v[2].send_page_view === false)
+    && !vendor.some(v => v[0] === 'config' && v[1] === 'G-FIXTURE123')
+    && browser.window['ga-disable-G-LOADER123'] === true, 'Only the serving tag is configured, with its separate GA stream disabled');
+  check(vendor.find(v => v[1] === 'page_view')[2].send_to === 'G-FIXTURE123', 'The manual page view targets only the approved measurement destination');
   api.trackPageView('/upload-statement'); api.trackPageView('/upload-statement');
   check(vendor.filter(v => v[1] === 'page_view').length === 1, 'Repeated router renders never duplicate a page view');
   let payload = vendor.find(v => v[1] === 'page_view')[2];

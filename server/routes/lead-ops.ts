@@ -160,7 +160,7 @@ export function registerLeadOpsRoutes(app: Express) {
         ? await db.select({
           requestId: inboundRequestWorkLinks.requestId, workType: inboundRequestWorkLinks.workType,
           taskId: inboundRequestWorkLinks.taskId, ticketId: inboundRequestWorkLinks.ticketId,
-          taskTitle: tasks.title, taskStatus: tasks.status,
+          taskTitle: tasks.title, taskStatus: tasks.status, taskAssignedTo: tasks.assignedTo,
         }).from(inboundRequestWorkLinks)
           .leftJoin(tasks, sql`${tasks.id} = ${inboundRequestWorkLinks.taskId}`)
           .where(inArray(inboundRequestWorkLinks.requestId, requestIds))
@@ -220,7 +220,7 @@ export function registerLeadOpsRoutes(app: Express) {
         processingNeedsAttention: row.sourceType === "statement_upload" && Boolean(statementReview)
           && (statementReview!.state === "held" || statementReview!.state === "failed"),
         work: work
-          ? { taskId: work.taskId, ticketId: work.ticketId, title: work.taskTitle ?? null, status: work.taskStatus ?? null }
+          ? { taskId: work.taskId, ticketId: work.ticketId, title: work.taskTitle ?? null, status: work.taskStatus ?? null, assignedTo: work.taskAssignedTo ?? null }
           : null,
         receipt: receipt ? { state: receipt.state, reason: receipt.blockedReason } : null,
         sourceClass: row.sourceClass,

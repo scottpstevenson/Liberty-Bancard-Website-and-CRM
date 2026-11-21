@@ -16,7 +16,7 @@ export interface InboundRequestRow {
   shortRef: string;
   businessName: string | null;
   processingNeedsAttention: boolean;
-  work: { taskId: number | null; ticketId: number | null; title: string | null; status: string | null } | null;
+  work: { taskId: number | null; ticketId: number | null; title: string | null; status: string | null; assignedTo?: string | null } | null;
   receipt: { state: string; reason: string | null } | null;
   sourceClass: string;
   sourceCategory: string;
@@ -241,7 +241,10 @@ function StatusBadges({ row }: { row: InboundRequestRow }) {
       <div className="text-xs">
         <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-5 ${statusClass(row.assignmentStatus)}`}>{label(ASSIGNMENT_LABEL, row.assignmentStatus)}</Badge>
         {(row.assignedTo || row.assignmentReason) && <span className="ml-1.5 text-muted-foreground break-words">{row.assignedTo || row.assignmentReason}</span>}
-        {!row.assignedTo && row.work?.taskId != null && (
+        {!row.assignedTo && row.work?.assignedTo && (
+          <div className="mt-1 text-muted-foreground">Review task assigned to {row.work.assignedTo}.</div>
+        )}
+        {!row.assignedTo && !row.work?.assignedTo && row.work?.taskId != null && (
           <div className="mt-1 text-muted-foreground" data-testid={`text-unassigned-review-${row.shortRef}`}>
             Review owner: none recorded. The review task is in the unassigned queue;{" "}
             <a className="text-blue-600 hover:underline" href={todayDestinations.unassignedTasks} data-testid={`link-unassigned-queue-${row.shortRef}`}>open the unassigned queue</a>.

@@ -7,7 +7,7 @@
  *   GET    /api/admin/gmail-oauth/status          — connection state, email, aliases (no secrets)
  *   GET    /api/admin/gmail-oauth/authorize        — returns the authorization URL for the OAuth flow
  *   GET    /api/admin/gmail-oauth/callback         — OAuth2 redirect target; exchanges code for tokens
- *   POST   /api/admin/gmail-oauth/verify           — live probe: token → Google userinfo
+ *   POST   /api/admin/gmail-oauth/verify           — live probe: token → Gmail mailbox profile
  *   POST   /api/admin/gmail-oauth/refresh-aliases  — re-fetches send-as aliases from Gmail
  *   POST   /api/admin/gmail-oauth/test-send        — sends a test email to an explicit internal address
  *   DELETE /api/admin/gmail-oauth/revoke           — revokes token and clears DB entry
@@ -19,6 +19,7 @@
  *   GET  /api/admin/ghl-probes/attestation/:key    — retrieve latest attestation for a gate key
  */
 
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import type { Express, Request, Response } from "express";
 import { requireRole } from "../replit_integrations/auth";
 import { getCanonicalUrl } from "../lib/canonical-url";
@@ -40,6 +41,14 @@ import {
 } from "../services/ghl-channel-probes";
 import { serverError } from "../utils/server-error";
 
+declare module "express-session" {
+  interface SessionData {
+    gmailOAuthAttempt?: { state: string; expiresAt: number };
+  }
+}
+
+const GMAIL_OAUTH_ATTEMPT_MS = 10 * 60_000;
+
 export function registerGmailOAuthRoutes(app: Express): void {
   // ── Status ──────────────────────────────────────────────────────────────────
   app.get("/api/admin/gmail-oauth/status", requireRole("admin", "manager"), async (_req: Request, res: Response) => {
@@ -52,7 +61,7 @@ export function registerGmailOAuthRoutes(app: Express): void {
   });
 
   // ── Authorize (get OAuth URL) ───────────────────────────────────────────────
-  app.get("/api/admin/gmail-oauth/authorize", requireRole("admin"), (_req: Request, res: Response) => {
+  app.get("/api/admin/gmail-oauth/authorize", requireRole("admin"), (req: Request, res: Response) => {
     try {
       if (!isGmailOAuthSecretsPresent()) {
         return res.status(400).json({
@@ -64,9 +73,14 @@ export function registerGmailOAuthRoutes(app: Express): void {
         });
       }
       const redirectUri = `${getCanonicalUrl()}/api/admin/gmail-oauth/callback`;
-      const authUrl = getGmailAuthorizationUrl(redirectUri);
+      const state = randomBytes(32).toString("hex");
+      const authUrl = getGmailAuthorizationUrl(redirectUri, state);
       if (!authUrl) return res.status(500).json({ message: "Could not generate authorization URL" });
-      res.json({ authUrl, redirectUri });
+      req.session.gmailOAuthAttempt = { state, expiresAt: Date.now() + GMAIL_OAUTH_ATTEMPT_MS };
+      req.session.save((err) => {
+        if (err) return serverError(res, err);
+        res.set("Cache-Control", "no-store").json({ authUrl, redirectUri });
+      });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -76,17 +90,31 @@ export function registerGmailOAuthRoutes(app: Express): void {
   // NOTE: This endpoint is hit by the Google OAuth redirect.
   // For the admin flow, the admin will be directed to this URL in a new browser window.
   // After success, they are redirected to the readiness dashboard.
-  app.get("/api/admin/gmail-oauth/callback", async (req: Request, res: Response) => {
-    const { code, error: oauthError } = req.query as Record<string, string>;
+  app.get("/api/admin/gmail-oauth/callback", requireRole("admin"), async (req: Request, res: Response) => {
+    const { code, error: oauthError, state } = req.query;
 
     const canonicalBase = getCanonicalUrl();
 
-    if (oauthError) {
+    res.set("Cache-Control", "no-store");
+    const attempt = req.session.gmailOAuthAttempt;
+    if (!attempt || attempt.expiresAt <= Date.now() || typeof state !== "string" ||
+        !/^[a-f0-9]{64}$/.test(state) ||
+        !timingSafeEqual(Buffer.from(state, "hex"), Buffer.from(attempt.state, "hex"))) {
+      return res.redirect(`${canonicalBase}/dashboard/outbound-readiness?gmail_error=Please%20start%20a%20new%20Gmail%20connection%20from%20this%20CRM%20session.`);
+    }
+    delete req.session.gmailOAuthAttempt;
+    try {
+      await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+    } catch (err) {
+      return serverError(res, err);
+    }
+
+    if (typeof oauthError === "string") {
       console.error("[Gmail OAuth] Callback error:", oauthError);
       return res.redirect(`${canonicalBase}/dashboard/outbound-readiness?gmail_error=${encodeURIComponent(oauthError)}`);
     }
 
-    if (!code) {
+    if (typeof code !== "string" || !code) {
       return res.redirect(`${canonicalBase}/dashboard/outbound-readiness?gmail_error=missing_code`);
     }
 

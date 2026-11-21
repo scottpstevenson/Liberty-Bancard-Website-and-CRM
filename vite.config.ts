@@ -64,7 +64,7 @@ export default defineConfig({
     },
   },
   define: {
-    ...(process.env.NODE_ENV === "production" ? Object.fromEntries(Object.entries(libertyProductionTracking(loadEnv("production", path.resolve(import.meta.dirname, "client"), "VITE_"))).filter(([key]) => ["VITE_GA4_MEASUREMENT_ID", "VITE_GOOGLE_ADS_LEAD_CONVERSION"].includes(key)).map(([key, value]) => [`import.meta.env.${key}`, JSON.stringify(value)])) : {}),
+    ...(process.env.NODE_ENV === "production" ? Object.fromEntries(Object.entries(libertyProductionTracking(loadEnv("production", path.resolve(import.meta.dirname, "client"), "VITE_"))).filter(([key]) => ["VITE_GA4_MEASUREMENT_ID", "VITE_GOOGLE_TAG_ID", "VITE_GOOGLE_ADS_LEAD_CONVERSION"].includes(key)).map(([key, value]) => [`import.meta.env.${key}`, JSON.stringify(value)])) : {}),
     // Inject GHL_BOOKING_URL so operators only need one env var.
     // If VITE_GHL_BOOKING_URL is already set, it takes precedence at runtime
     // because Vite inlines VITE_* vars before this define runs.

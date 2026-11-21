@@ -79,6 +79,15 @@ check(r.reassigned === 1 && pn2.metadata.reviewOwnerUserId === adminB && pn2.met
 check((await pool.query(`SELECT status FROM partners WHERE id=$1`, [partner.id])).rows[0].status === "pending" && (await pool.query(`SELECT status FROM data_delete_requests WHERE id=$1`, [priv])).rows[0].status === "pending", "No request or application status was changed");
 check((await pool.query(`SELECT count(*)::int n FROM audit_logs WHERE action='inbound_review_reconcile'`)).rows[0].n === 5, "Every reconcile run is audited");
 
+// Business-day policies remain opt-in; existing elapsed-hour policies above keep their deadlines.
+await policy.setReviewPolicy({partner_application_request:{ownerUserId:adminB,dueHours:48,dueBusinessDays:2}}, "cert");
+const weekend = await policy.resolveReviewAssignment("partner_application_request", new Date("2026-11-21T15:33:07.123Z"));
+check(weekend.ownerUserId === adminB && weekend.dueAt === "2026-11-24T15:33:07.123Z", "Saturday receipt is due Tuesday at the same New York wall time");
+check(policy.reviewBusinessDayDeadline(new Date("2026-03-06T15:00:00Z"),2).toISOString() === "2026-03-10T14:00:00.000Z", "Spring DST preserves 10am New York across weekend");
+check(policy.reviewBusinessDayDeadline(new Date("2026-10-30T14:00:00Z"),2).toISOString() === "2026-11-03T15:00:00.000Z", "Fall DST preserves 10am New York across weekend");
+check((await policy.getReviewQueueStatus()).partner_application_request.recordedPolicy?.dueBusinessDays === 2, "Readback retains business-day mode");
+await assert.rejects(policy.setReviewPolicy({partner_application_request:{ownerUserId:adminB,dueHours:48,dueBusinessDays:0}}, "cert"), /INVALID_REVIEW_BUSINESS_DAYS/);
+checks++;
 await pool.query(`DELETE FROM system_settings WHERE key=$1`, [policy.INBOUND_REVIEW_POLICY_KEY]);
 console.log(`REVIEW_OWNERSHIP_RECONCILE_PASS (${checks} checks)`);
 await pool.end();

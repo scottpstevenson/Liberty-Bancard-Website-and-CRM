@@ -14,6 +14,12 @@ const runtimeEnv = (globalThis as typeof globalThis & { process?: { env?: Record
 const GA_ID = typeof import.meta.env !== "undefined"
   ? import.meta.env.VITE_GA4_MEASUREMENT_ID || import.meta.env.VITE_GA_ID
   : runtimeEnv?.VITE_GA4_MEASUREMENT_ID || runtimeEnv?.VITE_GA_ID;
+const configuredGoogleTag = typeof import.meta.env !== "undefined"
+  ? import.meta.env.VITE_GOOGLE_TAG_ID
+  : runtimeEnv?.VITE_GOOGLE_TAG_ID;
+const GOOGLE_TAG_ID = configuredGoogleTag && /^(?:G|GT)-[A-Z0-9]+$/.test(configuredGoogleTag)
+  ? configuredGoogleTag
+  : GA_ID;
 const FB_PIXEL_ID = typeof import.meta.env !== "undefined" ? import.meta.env.VITE_FB_PIXEL_ID : runtimeEnv?.VITE_FB_PIXEL_ID;
 const ADS_DESTINATION = typeof import.meta.env !== "undefined" ? import.meta.env.VITE_GOOGLE_ADS_LEAD_CONVERSION : runtimeEnv?.VITE_GOOGLE_ADS_LEAD_CONVERSION;
 
@@ -91,7 +97,7 @@ function ensureGtag() {
 }
 
 function loadGaScript() {
-  const tagId = GA_ID || (marketingConsent && /^AW-\d+\/[A-Za-z0-9_-]+$/.test(ADS_DESTINATION ?? "") ? ADS_DESTINATION!.split("/")[0] : undefined);
+  const tagId = (GA_ID && GOOGLE_TAG_ID) || (marketingConsent && /^AW-\d+\/[A-Za-z0-9_-]+$/.test(ADS_DESTINATION ?? "") ? ADS_DESTINATION!.split("/")[0] : undefined);
   if (!currentContext() || (!analyticsConsent && !marketingConsent) || !tagId || gaScriptInjected || typeof document === "undefined") return;
   gaScriptInjected = true;
   const script = document.createElement("script");
@@ -103,7 +109,8 @@ function loadGaScript() {
 function configureGaIfAllowed() {
   if (!currentContext() || !GA_ID || !analyticsConsent || gaConfigured || typeof window === "undefined") return;
   ensureGtag();
-  window.gtag!("config", GA_ID, { send_page_view: false, ...currentContext(), page_referrer: safeReferrer(document.referrer || ""), allow_google_signals: false, allow_ad_personalization_signals: false });
+  // Configure the serving tag once. Explicit send_to still routes events to the approved stream.
+  window.gtag!("config", GOOGLE_TAG_ID ?? GA_ID, { send_page_view: false, ...currentContext(), page_referrer: safeReferrer(document.referrer || ""), allow_google_signals: false, allow_ad_personalization_signals: false });
   gaConfigured = true;
 }
 
@@ -196,6 +203,8 @@ export function applyConsentPreferences(preferences: TrackingConsentPreferences)
   ensureGtag();
   if (typeof window !== "undefined") {
     if (GA_ID) (window as any)[`ga-disable-${GA_ID}`] = !active || !analyticsConsent;
+    // The serving tag ID can also name a separate GA4 stream. Only the selected stream may collect.
+    if (GA_ID && GOOGLE_TAG_ID && GOOGLE_TAG_ID !== GA_ID) (window as any)[`ga-disable-${GOOGLE_TAG_ID}`] = true;
     window.gtag!("consent", "update", {
       analytics_storage: active && analyticsConsent ? "granted" : "denied",
       ad_storage: active && marketingConsent ? "granted" : "denied",

@@ -7,12 +7,13 @@
  */
 import { pool } from "../db";
 import { storage } from "../storage";
+import { instantToBusinessInput, businessInputToInstant } from "../../shared/business-time";
 
 export const INBOUND_REVIEW_POLICY_KEY = "inbound_review_policy";
 export const REVIEW_POLICY_CLASSES = ["partner_application_request", "privacy_request"] as const;
 export type ReviewPolicyClass = (typeof REVIEW_POLICY_CLASSES)[number];
 
-export interface ReviewPolicyEntry { ownerUserId: string; dueHours: number }
+export interface ReviewPolicyEntry { ownerUserId: string; dueHours: number; dueBusinessDays?: number }
 export type ReviewPolicy = Partial<Record<ReviewPolicyClass, ReviewPolicyEntry>>;
 export interface ReviewAssignment {
   policy: "configured" | "not_configured";
@@ -53,7 +54,8 @@ export async function setReviewPolicy(next: ReviewPolicy, actor: string): Promis
     if (!entry) continue;
     if (!entry.ownerUserId || !(await ownerIsReviewer(entry.ownerUserId))) throw new Error(`INVALID_REVIEW_OWNER:${cls}`);
     if (!Number.isInteger(entry.dueHours) || entry.dueHours < 1 || entry.dueHours > 24 * 90) throw new Error(`INVALID_REVIEW_DUE_HOURS:${cls}`);
-    clean[cls] = { ownerUserId: entry.ownerUserId, dueHours: entry.dueHours };
+    if (entry.dueBusinessDays !== undefined && (!Number.isInteger(entry.dueBusinessDays) || entry.dueBusinessDays < 1 || entry.dueBusinessDays > 90)) throw new Error(`INVALID_REVIEW_BUSINESS_DAYS:${cls}`);
+    clean[cls] = { ownerUserId: entry.ownerUserId, dueHours: entry.dueHours, ...(entry.dueBusinessDays !== undefined ? { dueBusinessDays: entry.dueBusinessDays } : {}) };
   }
   await storage.setSystemSetting(INBOUND_REVIEW_POLICY_KEY, clean);
   await storage.createAuditLog({
@@ -63,12 +65,25 @@ export async function setReviewPolicy(next: ReviewPolicy, actor: string): Promis
   return clean;
 }
 
+/** Mon–Fri calendar days, preserving New York wall time across DST. Holidays are not excluded. */
+export function reviewBusinessDayDeadline(receivedAt: Date, days: number): Date {
+  if (!Number.isInteger(days) || days < 1 || days > 90 || !Number.isFinite(receivedAt.getTime())) throw new Error("INVALID_REVIEW_BUSINESS_DAYS");
+  const input = instantToBusinessInput(receivedAt);
+  const civil = new Date(input + ":00Z");
+  for (let remaining = days; remaining > 0;) {
+    civil.setUTCDate(civil.getUTCDate() + 1);
+    if (![0, 6].includes(civil.getUTCDay())) remaining--;
+  }
+  const due = businessInputToInstant(civil.toISOString().slice(0,16))!;
+  return new Date(due.getTime() + receivedAt.getUTCSeconds() * 1000 + receivedAt.getUTCMilliseconds());
+}
+
 /** Owner and due time for one request, derived from its receipt time and the recorded policy. */
 export async function resolveReviewAssignment(cls: ReviewPolicyClass, receivedAt: Date): Promise<ReviewAssignment> {
   const entry = (await getReviewPolicy())[cls];
   if (!entry) return { policy: "not_configured", ownerUserId: null, dueAt: null, reason: "no_policy_recorded" };
   if (!(await ownerIsReviewer(entry.ownerUserId))) return { policy: "not_configured", ownerUserId: null, dueAt: null, reason: "owner_not_a_reviewer" };
-  return { policy: "configured", ownerUserId: entry.ownerUserId, dueAt: new Date(receivedAt.getTime() + entry.dueHours * 3600_000).toISOString() };
+  return { policy: "configured", ownerUserId: entry.ownerUserId, dueAt: (entry.dueBusinessDays !== undefined ? reviewBusinessDayDeadline(receivedAt, entry.dueBusinessDays) : new Date(receivedAt.getTime() + entry.dueHours * 3600_000)).toISOString() };
 }
 
 export function reviewMetadata(a: ReviewAssignment) {
@@ -129,7 +144,7 @@ async function loadOutstanding(): Promise<OutstandingItem[]> {
 }
 
 export interface ReviewQueueClassStatus {
-  recordedPolicy: { ownerUserId: string; ownerEmail: string | null; dueHours: number } | null;
+  recordedPolicy: { ownerUserId: string; ownerEmail: string | null; dueHours: number; dueBusinessDays?: number } | null;
   ownerState: OwnerState | "not_configured";
   outstanding: number;
   withoutNotification: number;
@@ -150,7 +165,7 @@ export async function getReviewQueueStatus(now: Date = new Date()): Promise<Reco
     let ownerNoLongerValid = 0;
     for (const i of mine) if (i.assignedOwner && (await reviewerState(i.assignedOwner)) !== "ok") ownerNoLongerValid++;
     result[cls] = {
-      recordedPolicy: entry ? { ownerUserId: entry.ownerUserId, ownerEmail, dueHours: entry.dueHours } : null,
+      recordedPolicy: entry ? { ownerUserId: entry.ownerUserId, ownerEmail, dueHours: entry.dueHours, ...(entry.dueBusinessDays !== undefined ? { dueBusinessDays: entry.dueBusinessDays } : {}) } : null,
       ownerState: entry ? await reviewerState(entry.ownerUserId) : "not_configured",
       outstanding: mine.length,
       withoutNotification: mine.filter((i) => !i.notificationId).length,

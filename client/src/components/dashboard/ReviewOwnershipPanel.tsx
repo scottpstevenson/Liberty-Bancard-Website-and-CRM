@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 type OwnerState = "ok" | "missing" | "not_reviewer" | "deactivated" | "not_configured";
 interface ClassStatus {
-  recordedPolicy: { ownerUserId: string; ownerEmail: string | null; dueHours: number } | null;
+  recordedPolicy: { ownerUserId: string; ownerEmail: string | null; dueHours: number; dueBusinessDays?: number } | null;
   ownerState: OwnerState;
   outstanding: number; withoutNotification: number; unassigned: number; ownerNoLongerValid: number; overdue: number;
 }
@@ -30,19 +30,20 @@ export function ReviewOwnershipPanel() {
   const { toast } = useToast();
   const { data, isError, refetch } = useQuery<{ classes: Classes }>({ queryKey: ["/api/admin/inbound-review-queue"] });
   const { data: users } = useQuery<AdminUser[]>({ queryKey: ["/api/admin/users"] });
-  const [draft, setDraft] = useState<Record<string, { owner: string; hours: string }>>({});
+  const [draft, setDraft] = useState<Record<string, { owner: string; hours: string; businessDays?: boolean }>>({});
   const reviewers = (users ?? []).filter((u) => ["admin", "manager"].includes(u.role) && (u.accountState ?? "active") === "active");
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["/api/admin/inbound-review-queue"] });
   const save = useMutation({
     mutationFn: async () => {
-      const policy: Record<string, { ownerUserId: string; dueHours: number }> = {};
+      const policy: Record<string, { ownerUserId: string; dueHours: number; dueBusinessDays?: number }> = {};
       for (const cls of Object.keys(CLASS_LABEL) as Array<keyof typeof CLASS_LABEL>) {
         const current = data?.classes[cls].recordedPolicy;
         const d = draft[cls];
         const owner = d?.owner ?? current?.ownerUserId ?? "";
-        const hours = d?.hours ?? (current ? String(current.dueHours) : "");
-        if (owner && hours) policy[cls] = { ownerUserId: owner, dueHours: Number(hours) };
+        const hours = d?.hours ?? (current ? String(current.dueBusinessDays ?? current.dueHours) : "");
+        const businessDays = d?.businessDays ?? (current?.dueBusinessDays !== undefined);
+        if (owner && hours) policy[cls] = { ownerUserId: owner, dueHours: businessDays ? Number(hours) * 24 : Number(hours), ...(businessDays ? { dueBusinessDays: Number(hours) } : {}) };
       }
       await apiRequest("PUT", "/api/admin/inbound-review-policy", { policy });
     },
@@ -73,7 +74,8 @@ export function ReviewOwnershipPanel() {
           const s = data.classes[cls];
           const d = draft[cls];
           const owner = d?.owner ?? s.recordedPolicy?.ownerUserId ?? "";
-          const hours = d?.hours ?? (s.recordedPolicy ? String(s.recordedPolicy.dueHours) : "");
+          const hours = d?.hours ?? (s.recordedPolicy ? String(s.recordedPolicy.dueBusinessDays ?? s.recordedPolicy.dueHours) : "");
+          const businessDays = d?.businessDays ?? (s.recordedPolicy?.dueBusinessDays !== undefined);
           const ownerKnown = reviewers.some((r) => r.id === owner);
           return (
             <div key={cls} className="space-y-2 border-t pt-3" data-testid={`review-ownership-${cls}`}>
@@ -81,7 +83,7 @@ export function ReviewOwnershipPanel() {
               <div className="flex flex-wrap items-end gap-3">
                 <label className="text-xs space-y-1">
                   <span className="block">Owner</span>
-                  <Select value={owner} onValueChange={(v) => setDraft({ ...draft, [cls]: { owner: v, hours } })}>
+                  <Select value={owner} onValueChange={(v) => setDraft({ ...draft, [cls]: { owner: v, hours, businessDays } })}>
                     <SelectTrigger className="w-72" aria-label={`${CLASS_LABEL[cls]} owner`}><SelectValue placeholder="Choose an owner" /></SelectTrigger>
                     <SelectContent>
                       {!ownerKnown && owner && <SelectItem value={owner}>{s.recordedPolicy?.ownerEmail ?? "Recorded owner"} (no longer valid)</SelectItem>}
@@ -90,10 +92,11 @@ export function ReviewOwnershipPanel() {
                   </Select>
                 </label>
                 <label className="text-xs space-y-1">
-                  <span className="block">Due after (hours)</span>
-                  <Input className="w-28" type="number" min={1} max={2160} value={hours} aria-label={`${CLASS_LABEL[cls]} due hours`}
-                    onChange={(e) => setDraft({ ...draft, [cls]: { owner, hours: e.target.value } })} />
+                  <span className="block">Due after ({businessDays ? "business days" : "hours"})</span>
+                  <Input className="w-28" type="number" min={1} max={businessDays ? 90 : 2160} value={hours} aria-label={`${CLASS_LABEL[cls]} due ${businessDays ? "business days" : "hours"}`}
+                    onChange={(e) => setDraft({ ...draft, [cls]: { owner, hours: e.target.value, businessDays } })} />
                 </label>
+                <label className="text-xs flex items-center gap-2"><input type="checkbox" checked={businessDays} onChange={e => setDraft({ ...draft, [cls]: { owner, hours: e.target.checked ? "2" : "48", businessDays: e.target.checked } })} />Use business days (Mon–Fri, New York; holidays included)</label>
               </div>
               <p className={s.ownerState === "ok" ? "text-xs text-muted-foreground" : "text-xs text-destructive"} data-testid={`review-owner-state-${cls}`}>{OWNER_TEXT[s.ownerState]}</p>
               <p className="text-xs text-muted-foreground">

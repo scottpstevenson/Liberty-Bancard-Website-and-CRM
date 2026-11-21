@@ -145,11 +145,12 @@ export async function getGmailOAuthStatus(): Promise<{
 
 // ── OAuth flow ────────────────────────────────────────────────────────────────
 
-export function getGmailAuthorizationUrl(redirectUri?: string): string | null {
+export function getGmailAuthorizationUrl(redirectUri: string, state: string): string | null {
   const client = getOAuth2Client(redirectUri);
   if (!client) return null;
   return client.generateAuthUrl({
     access_type: "offline",
+    state,
     scope: GMAIL_SCOPES,
     prompt: "consent",
   });
@@ -182,9 +183,10 @@ export async function exchangeCodeForTokens(
 
     client.setCredentials(tokens);
 
-    const oauth2Api = google.oauth2({ version: "v2", auth: client });
-    const userInfo  = await oauth2Api.userinfo.get();
-    const email     = userInfo.data.email || null;
+    // Gmail scopes do not grant access to the separate OAuth user-info API.
+    const profile = await google.gmail({ version: "v1", auth: client }).users.getProfile({ userId: "me" });
+    const email = profile.data.emailAddress?.trim().toLowerCase();
+    if (!email) throw new Error("Gmail profile returned no mailbox address");
 
     let aliases: string[] = [];
     try {
@@ -277,9 +279,10 @@ export async function verifyGmailConnection(): Promise<{
   if (!client) return { success: false, error: "OAuth client init failed" };
   client.setCredentials({ refresh_token: refreshToken });
   try {
-    const oauth2Api = google.oauth2({ version: "v2", auth: client });
-    const userInfo  = await oauth2Api.userinfo.get();
-    return { success: true, email: userInfo.data.email || undefined };
+    const profile = await google.gmail({ version: "v1", auth: client }).users.getProfile({ userId: "me" });
+    const email = profile.data.emailAddress?.trim().toLowerCase();
+    if (!email) return { success: false, error: "Gmail profile returned no mailbox address" };
+    return { success: true, email };
   } catch (err: any) {
     const msg = err?.response?.data?.error_description || err.message || String(err);
     return { success: false, error: msg };

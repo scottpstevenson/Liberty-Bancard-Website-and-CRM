@@ -19,6 +19,8 @@ const h = await stage3BHttpFixture(async app => {
   registerPublicRoutes(app);
   const { registerTemplatesSettingsRoutes } = await import("../server/routes/templates-settings");
   registerTemplatesSettingsRoutes(app);
+  const { registerLeadOpsRoutes } = await import("../server/routes/lead-ops");
+  registerLeadOpsRoutes(app);
 }, undefined, { backgroundProfile: "off" });
 let checks = 0;
 const ok = (value: unknown, label: string) => { assert.ok(value, label); checks++; };
@@ -152,6 +154,9 @@ try {
     eq([state.tasks[0].contact_id, state.tasks[0].deal_id, state.tasks[0].canonical_assignee, state.tasks[0].assigned_to], [null, null, ownerEmail, ownerEmail],
       "unlinked review task is owned by the default owner");
     eq(effectState(state.effects, "assignment"), "held", "assignment effect stays held until the contact is classified");
+    const list = await h.request("admin", "GET", `/api/lead-ops/inbound-requests?ref=${receipt.replaceAll("-", "").slice(0,8)}`);
+    eq(list.status, 200, "intake list read succeeds");
+    eq([list.body[0].assignedTo, list.body[0].work.assignedTo], [null, ownerEmail], "list distinguishes unassigned sales ownership from assigned review work");
 
     // The separate classification authority makes the records production (reproduced here by its outcome only).
     await q("UPDATE contacts SET record_class='production' WHERE id=$1", [contact.id]);
