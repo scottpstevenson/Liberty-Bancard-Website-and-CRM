@@ -1760,8 +1760,57 @@ export function normalizeGhlInboundChannel(raw: unknown): "sms" | "email" | null
   return null;
 }
 
+const GHL_VOICEMAIL_TYPES = new Set(["voicemail", "VOICEMAIL", "TYPE_VOICEMAIL", "TYPE_VOICE_MAIL"]);
+const GHL_CALL_MESSAGE_TYPES = new Set(["CALL", "TYPE_CALL", ...GHL_VOICEMAIL_TYPES]);
+const GHL_CALL_STATUSES = new Set(["completed", "no-answer", "busy", "failed", "canceled"]);
+
+async function recordGhlInboundCall(payload: Record<string, unknown>) {
+  const { locationId, contactId, messageId, dateAdded, callDuration, callStatus, status, messageType, messageTypeString } = payload;
+  if (!process.env.GHL_LOCATION_ID || locationId !== process.env.GHL_LOCATION_ID) return;
+  // The voicemail sync already owns the voicemail event and its associated media.
+  if ([status, callStatus, messageType, messageTypeString].some(value =>
+    typeof value === "string" && GHL_VOICEMAIL_TYPES.has(value))) return;
+  if (typeof messageId !== "string" || !messageId.trim() || messageId.length > 200 || typeof contactId !== "string") return;
+
+  const { resolveInboundIdentity } = await import("./ghl-inbound-identity");
+  const identity = await resolveInboundIdentity(contactId);
+  if (identity.state !== "resolved") {
+    await storage.createAuditLog({
+      action: "ghl_inbound_identity_unresolved", entityType: "ghl_webhook", entityId: null,
+      details: { state: identity.state, messageId, type: "InboundMessage", channel: "call" },
+    });
+    return;
+  }
+
+  const duration = typeof callDuration === "number"
+    ? callDuration
+    : typeof callDuration === "string" && /^\d+$/.test(callDuration) ? Number(callDuration) : NaN;
+  const timestamp = typeof dateAdded === "string" ? new Date(dateAdded) : undefined;
+  const { recordCanonicalInboundMessageEventOnce } = await import("./ghl-inbound-effects");
+  await recordCanonicalInboundMessageEventOnce({
+    contactId: identity.contact.id,
+    dealId: identity.deal?.id ?? null,
+    payload: { messageId },
+    channel: "call",
+    subject: "Inbound call",
+    ghlMessageId: messageId,
+    occurredAt: timestamp && Number.isFinite(timestamp.getTime()) ? timestamp : undefined,
+    metadata: {
+      locationId,
+      callStatus: typeof callStatus === "string" && GHL_CALL_STATUSES.has(callStatus) ? callStatus : null,
+      durationSeconds: Number.isSafeInteger(duration) && duration >= 0 && duration <= 86400 ? duration : null,
+    },
+  });
+}
+
 export async function handleGhlWebhook(payload: any): Promise<void> {
   const { type, contactId, messageId, direction, body, subject, status: deliveryStatus } = payload;
+  if (type === "InboundMessage" && direction === "inbound"
+      && (GHL_CALL_MESSAGE_TYPES.has(payload.messageType) || GHL_CALL_MESSAGE_TYPES.has(payload.messageTypeString))) {
+    await recordGhlInboundCall(payload);
+    return;
+  }
+
   // Never a random fallback: a missing provider identity is the payload's own canonical fingerprint, so a redelivery of the
   // same payload converges instead of minting a new consent event key per attempt.
   const webhookOccurrenceId = (await import("./ghl-inbound-effects")).canonicalInboundMessageIdentity(payload).key;

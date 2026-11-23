@@ -45,16 +45,16 @@ function setCached<T>(key: string, result: T): T {
   return result;
 }
 
-function ghlHeaders(): Record<string, string> {
+function ghlHeaders(version: string): Record<string, string> {
   const token = process.env.GHL_PRIVATE_INTEGRATION_TOKEN || "";
   return {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
-    Version: "2021-07-28",
+    Version: version,
   };
 }
 
-async function ghlGet(path: string): Promise<{ ok: boolean; status: number; body: unknown }> {
+async function ghlGet(path: string, version = "2021-07-28"): Promise<{ ok: boolean; status: number; body: unknown }> {
   const token = process.env.GHL_PRIVATE_INTEGRATION_TOKEN;
   if (!token) return { ok: false, status: 0, body: { error: "GHL_PRIVATE_INTEGRATION_TOKEN not set" } };
   try {
@@ -63,7 +63,7 @@ async function ghlGet(path: string): Promise<{ ok: boolean; status: number; body
     const timeout = setTimeout(() => controller.abort(), 15_000);
     let resp: Response;
     try {
-      resp = await fetch(url, { method: "GET", headers: ghlHeaders(), signal: controller.signal });
+      resp = await fetch(url, { method: "GET", headers: ghlHeaders(version), signal: controller.signal });
     } finally {
       clearTimeout(timeout);
     }
@@ -132,6 +132,7 @@ export async function recordAdminAttestation(params: {
        ${params.expiresAt ? params.expiresAt.toISOString() : null})
     RETURNING id
   `);
+  invalidateProbeCache();
   return { id: (result.rows[0] as any).id };
 }
 
@@ -279,6 +280,17 @@ export interface GhlSmsProbeResult {
   consentNote: string;
 }
 
+interface HighLevelPhoneNumber {
+  phoneNumber?: unknown;
+  friendlyName?: unknown;
+  capabilities?: { sms?: unknown };
+  isDefaultNumber?: unknown;
+}
+
+interface HighLevelPhoneNumberResponse {
+  data?: { numbers?: HighLevelPhoneNumber[] };
+}
+
 const A2P_CONSENT_NOTE =
   "A2P sends require documented PEWC consent on the contact record. " +
   "Sequence-worker checks contactability permission before every SMS step.";
@@ -290,7 +302,8 @@ export async function probeGhlSms(): Promise<GhlSmsProbeResult> {
   const locationId = process.env.GHL_LOCATION_ID;
   const timestamp  = new Date().toISOString();
 
-  const a2pAttestation    = await getLatestAttestation("ghl_sms_a2p_approved");
+  const a2pAttestation = await getLatestAttestation("ghl_sms_a2p_approved")
+    ?? await getLatestAttestation("a2p_campaign_approved");
   const numberAttestation = await getLatestAttestation("ghl_sms_sending_number");
 
   const base: Omit<GhlSmsProbeResult, "a2pAttestation" | "numberAttestation" | "method" | "probeTimestamp" | "consentNote"> = {
@@ -318,14 +331,16 @@ export async function probeGhlSms(): Promise<GhlSmsProbeResult> {
     });
   }
 
-  const { ok: apiOk, status, body } = await ghlGet(`/locations/${locationId}/phone-numbers`);
+  const { ok: apiOk, status, body } = await ghlGet(
+    `/phone-system/numbers/location/${encodeURIComponent(locationId)}`,
+    "v3",
+  );
 
-  if (!apiOk || status === 0) {
-    const errMsg = (body as any)?.message || `HTTP ${status}`;
+  if (!apiOk) {
     return setCached("ghl_sms", {
       ...base,
       apiReachable: status !== 0,
-      probeError: `GHL phone-numbers API returned ${status}: ${errMsg}`,
+      probeError: status ? `HighLevel phone numbers returned HTTP ${status}` : "HighLevel phone numbers could not be reached",
       ok: !!a2pAttestation && !!numberAttestation,
       a2pAttestation,
       numberAttestation,
@@ -337,42 +352,46 @@ export async function probeGhlSms(): Promise<GhlSmsProbeResult> {
     });
   }
 
-  const data = body as any;
-  const rawNumbers: any[] = Array.isArray(data) ? data : (data?.numbers || data?.phoneNumbers || []);
-
-  const phoneNumbers = rawNumbers.map((n: any) => ({
-    number:       n.phoneNumber || n.number || n.phone || "",
-    friendlyName: n.friendlyName || n.name || n.phoneNumber || "",
-    smsCapable:   !!(n.capabilities?.SMS || n.smsEnabled || n.type === "SMS"),
-    status:       n.status || "unknown",
+  const rawNumbers = (body as HighLevelPhoneNumberResponse | null)?.data?.numbers;
+  const activeNumbers = Array.isArray(rawNumbers) ? rawNumbers.filter(
+    (entry): entry is HighLevelPhoneNumber & { phoneNumber: string } =>
+      typeof entry?.phoneNumber === "string" && /^\+[1-9]\d{1,14}$/.test(entry.phoneNumber),
+  ) : [];
+  const phoneNumbers = activeNumbers.map(entry => ({
+    number: entry.phoneNumber,
+    friendlyName: typeof entry.friendlyName === "string" ? entry.friendlyName : entry.phoneNumber,
+    smsCapable: entry.capabilities?.sms === true,
+    status: "active",
   }));
-
-  const smsNumbers = phoneNumbers.filter(n => n.smsCapable);
-  const primarySms = smsNumbers[0] || null;
+  const smsNumbers = activeNumbers.filter(entry => entry.capabilities?.sms === true);
+  const primarySms = smsNumbers.find(entry => entry.isDefaultNumber === true) ?? smsNumbers[0];
+  const sendingNumber = primarySms?.phoneNumber ?? null;
 
   const a2pApprovalNote =
     "GHL private API does not expose A2P 10DLC campaign status. " +
     "Admin must attest campaign approval via Replit admin panel.";
 
   const ok = !!primarySms && !!a2pAttestation;
-  const probeError = !primarySms
+  const probeError = !Array.isArray(rawNumbers)
+    ? "HighLevel returned an unexpected phone numbers response"
+    : !primarySms
     ? "No SMS-capable number found on this GHL location"
     : !a2pAttestation
-    ? `SMS number found (${primarySms.number}) but A2P 10DLC campaign approval not attested. ${a2pApprovalNote}`
+    ? `SMS number found (${sendingNumber}) but A2P 10DLC campaign approval not attested. ${a2pApprovalNote}`
     : null;
 
   return setCached("ghl_sms", {
     ...base,
     apiReachable: true,
     phoneNumbers,
-    smsSendingNumber: primarySms?.number || null,
+    smsSendingNumber: sendingNumber,
     smsCapable: !!primarySms,
     a2pApprovalAttested: !!a2pAttestation,
     probeError,
     ok,
     a2pAttestation,
     numberAttestation,
-    method: "api_probe",
+    method: Array.isArray(rawNumbers) ? "api_probe" : "unverified",
     probeTimestamp: timestamp,
     consentNote: A2P_CONSENT_NOTE,
   });

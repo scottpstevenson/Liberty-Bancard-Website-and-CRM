@@ -30,7 +30,8 @@ export interface InboundCanonicalEventInput {
   dealId?: number | null;
   /** The provider payload that names this message (used only for its canonical identity). */
   payload: unknown;
-  channel: "email" | "sms";
+  channel: "email" | "sms" | "call";
+  occurredAt?: Date;
   provider?: "ghl";
   subject?: string | null;
   body?: string | null;
@@ -63,6 +64,7 @@ export async function recordCanonicalInboundMessageEventOnce(input: InboundCanon
       contactId: input.contactId,
       dealId: input.dealId ?? null,
       channel: input.channel,
+      occurredAt: input.occurredAt,
       provider: input.provider ?? "ghl",
       subject: input.subject ?? null,
       body: input.body ?? null,

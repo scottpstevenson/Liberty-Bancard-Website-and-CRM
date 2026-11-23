@@ -117,6 +117,8 @@ function EventRow({ event }: { event: CommEvent }) {
   const isOutbound = event.direction === "outbound";
   const sc = statusConfig(event.status);
   const conf = formatConfidence(event.intentConfidence);
+  const callStatus = event.channel === "call" ? event.metadata?.callStatus : undefined;
+  const callDuration = event.channel === "call" ? event.metadata?.durationSeconds : undefined;
 
   return (
     <div
@@ -200,6 +202,13 @@ function EventRow({ event }: { event: CommEvent }) {
           <span className="font-medium">By:</span>{" "}
           {event.sentBy === "automation" ? "Automation" : "Human"}
         </span>
+
+        {typeof callStatus === "string" && (
+          <span>Call outcome {callStatus.replaceAll("-", " ")}</span>
+        )}
+        {typeof callDuration === "number" && Number.isFinite(callDuration) && (
+          <span>{callDuration} seconds</span>
+        )}
 
         {event.intentClassification && (
           <span data-testid={`comm-event-intent-${event.id}`}>

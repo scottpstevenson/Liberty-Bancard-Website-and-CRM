@@ -73,6 +73,7 @@ interface SmsProbe {
   a2pAttestation: { attestedBy: string; attestedAt: string } | null;
   phoneNumbers: { number: string; capabilities: string[] }[];
   consentNote: string;
+  probeError: string | null;
   numberAttestation: { attestedBy: string } | null;
 }
 
@@ -555,16 +556,19 @@ export default function OutboundReadiness() {
                       A2P approval cannot be read via GHL API. After confirming approval in GHL Settings → Phone Numbers → 10DLC Brands & Campaigns, click the button below.
                     </div>
                   )}
+                  {!smsProbe.smsCapable && smsProbe.probeError && (
+                    <p className="text-xs text-muted-foreground">{smsProbe.probeError}</p>
+                  )}
                   <p className="text-xs text-muted-foreground">{smsProbe.consentNote}</p>
                 </div>
                 {!smsProbe.a2pApprovalAttested && (
-                  <Button size="sm" variant="outline" className="w-full" disabled={attesting === "a2p_campaign_approved"}
+                  <Button size="sm" variant="outline" className="w-full" disabled={attesting === "ghl_sms_a2p_approved"}
                     onClick={() => recordAttestation(
-                      "a2p_campaign_approved",
+                      "ghl_sms_a2p_approved",
                       "A2P 10DLC campaign approval manually verified in GHL Settings → Phone Numbers → Campaigns"
                     )}
                     data-testid="btn-attest-a2p">
-                    {attesting === "a2p_campaign_approved" ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                    {attesting === "ghl_sms_a2p_approved" ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
                     I verified A2P 10DLC approval in GHL
                   </Button>
                 )}

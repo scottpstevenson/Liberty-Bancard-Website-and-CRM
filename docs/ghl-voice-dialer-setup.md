@@ -32,7 +32,7 @@ This document covers every step to configure GoHighLevel for voice calls, voicem
    - Enable **Incoming Calls**
    - Enable **Outgoing Calls**
    - Set **Missed Call Behavior** → Forward to voicemail or agent cell
-   - Enable **Call Recording** (see Section 2)
+   - Keep **Call Recording** off until the consent flow is in place (see Section 2)
 6. Copy the number — this is your **outbound caller ID**
 
 ### Recommended Number Strategy
@@ -49,23 +49,14 @@ This document covers every step to configure GoHighLevel for voice calls, voicem
 
 ## 2. Call Recording & Compliance
 
-### Florida Law (1-Party Consent State)
-Florida is a **1-party consent** state — you can legally record calls as long as one party (you) consents. No disclosure is required by Florida law.
+### Call recording consent
 
-However, **best practice for B2B outbound** is to announce recording at the start of every call:
+Florida law provides an exception for recording when all parties have given prior consent. Keep call recording off until the consent flow has been reviewed and verified. Apply the same review to Voice AI recording and transcription settings before production use. [Florida Statutes § 934.03(2)(d)](https://www.flsenate.gov/Laws/Statutes/2026/934.03)
 
-> *"Just so you know, this call may be recorded for quality and training purposes."*
-
-### Enable Recording in GHL
-
-1. **GHL → Settings → Phone Numbers → [Your Number] → Edit**
-2. Toggle **Call Recording → ON**
-3. Set **Recording Storage** → GHL Cloud (default)
-4. Optionally set a **recording announcement message** that plays automatically
+In **HighLevel → Settings → Phone Numbers → [Your Number] → Edit**, leave **Call Recording** off. Provide a way to continue without recording if a caller declines. An announcement alone does not establish prior consent.
 
 ### Compliance Notes
 - Always honor **Do Not Call (DNC)** requests — the platform sets `lb_do_not_sdr = true` automatically when a contact opts out
-- For calls into other states: CA, IL, FL (interstate), WA are all-party consent — always announce recording
 - TCPA applies to **mobile numbers** — ensure you have written consent before dialing cell phones for marketing purposes
 - Your compliance engine (`/dashboard/compliance`) already handles GHL-side opt-outs
 
@@ -73,37 +64,19 @@ However, **best practice for B2B outbound** is to announce recording at the star
 
 ## 3. Inbound Call Flow (IVR)
 
-### Setup in GHL
+### Liberty's inbound number
 
-1. Go to **GHL → Settings → Phone Numbers → [Your Number] → Call Flows**
-2. Click **Create Call Flow**
-3. Build this structure:
+HighLevel routes **(786) 375-9726** to **Liberty Bancard — Phone Agent** as first priority. The website lists **(954) 266-8214**. Confirm the public line's carrier routing before changing either number.
 
-```
-Inbound Call
-    │
-    ├─ Business Hours? → YES → Ring Agent (round-robin, 15s)
-    │                              │
-    │                              └─ No Answer → Voicemail Drop (record: "Liberty Bancard Sales")
-    │
-    └─ NO (after hours) → Play Message → "Thanks for calling Liberty Bancard.
-                                          Our team is available Mon–Fri 9am–6pm Eastern.
-                                          Please leave a message and we'll call you back
-                                          within one business day."
-                                         → Voicemail Box → Send SMS auto-reply
-```
+### CRM delivery
 
-### After-Hours SMS Auto-Reply (set in GHL Workflow)
-```
-Hi {{contact.first_name}}! Thanks for reaching out to Liberty Bancard. Our team will 
-contact you on the next business day. In the meantime, visit libertybancard.com or 
-reply with any questions. — Liberty Bancard Team
-```
+HighLevel's signed [InboundMessage](https://marketplace.gohighlevel.com/docs/webhook/InboundMessage/) subscription must deliver to `/api/webhooks/ghl`. For the configured location and a linked contact, Liberty logs the call timestamp, status and duration to the contact's Communication timeline. The existing voicemail sync remains responsible for voicemail.
 
-### Call Flow Routing by Type
-- **Inbound SDR-originated calls** (prospect calls back from a VM drop): Route to the agent who owns the contact in GHL, with fallback to round-robin
-- **Inbound from website** (click-to-call): Route to first available sales agent
-- **Merchant support**: Route to `GHL_SUPPORT_TEAM_USER_ID` agent
+To verify the connection, place a test call from an agreed test number and compare the HighLevel call entry with a single CRM event. Use a separate inbound test text to check SMS logging and reply-stop. Use an isolated fixture or a dedicated staff test contact for a STOP test.
+
+### Missed-call text and SMS readiness
+
+HighLevel's built-in Missed Call Text Back runs independently of the CRM's outbound pause. Check its status before testing the missed-call path. Leave CRM-controlled outbound paused during inbound verification. Carrier approval shown in the HighLevel Trust Center can be recorded by a Liberty admin in **Outbound Readiness**. Each CRM-controlled SMS still requires its own recipient and pause checks.
 
 ---
 
@@ -199,7 +172,7 @@ GHL's Power Dialer lets reps work through a call list efficiently with one-click
 2. Or from **GHL → Conversations → Power Dialer → Create New Session**
 3. Configure:
    - **Caller ID**: Your outbound number
-   - **Call Recording**: ON
+   - **Call Recording**: OFF until the consent flow is in place
    - **Auto-advance**: ON (auto-dials next contact after disposition)
    - **Voicemail Drop**: Select per-vertical drop (see Section 4)
    - **Wrap-up time**: 30 seconds (enough time to leave notes)

@@ -2807,6 +2807,13 @@
       "when": 1800400330011,
       "tag": "0397_payarc_traditional",
       "breakpoints": true
+    },
+    {
+      "idx": 401,
+      "version": "7",
+      "when": 1800400330012,
+      "tag": "0398_restore_outbound_admin_attestations",
+      "breakpoints": true
     }
   ]
 }

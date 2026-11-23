@@ -27,7 +27,7 @@ process.env.GHL_LOCATION_ID = "certification-location";
 
 const { pool, db } = await import("../../server/db");
 const { storage } = await import("../../server/storage");
-const { sdrLeadState, sdrMerchants } = await import("../../shared/schema");
+const { sdrLeadState, sdrMerchants, sendingIdentities } = await import("../../shared/schema");
 const { eq } = await import("drizzle-orm");
 const { applyConsentCommand } = await import("../../server/services/consent-authority");
 const { recordPewcDecision } = await import("../../server/services/consent-evidence");
@@ -151,6 +151,10 @@ await grantPewc(dual.id, "dual");
 await stop(dual.id, "dual");
 const dualLead = await makeLead(dual.id, "dual", { statementReminderCount: 0 });
 // The statement request was delivered earlier; the reminder-1 email receipt is already accepted so no network is needed.
+await db.insert(sendingIdentities).values({
+  label: "Certification sender", emailAddress: "certification-sender@example.test", domain: "example.test",
+  mailboxType: "google_workspace", isActive: true, warmupStatus: "warm", dailyLimit: 30, healthScore: 100,
+});
 await pool.query(
   `INSERT INTO followup_effect_receipts (effect_key, owner_kind, owner_id, channel, state) VALUES
     ($1,'statement',$3,'email','accepted'), ($2,'statement',$3,'email','accepted')`,
@@ -249,6 +253,56 @@ check(!/lead\.consentSms|lead\.optedOutSms|lead\.ownerPhone/.test(read("server/s
 check(!/lead\.consentSms|lead\.optedOutSms/.test(read("server/services/sdr/proposal-tracking.ts")), "proposal SMS follow-up never reads the legacy lead consent flags");
 check(!/getContacts\(\{ limit: (500|1000) \}\)/.test(ghlSource), "GHL note and no-show handlers no longer scan a bounded page of contacts");
 check(/handleNoteAdded[\s\S]*?getContactByGhlContactId/.test(ghlSource), "the note handler resolves the contact by its exact GHL id");
+// Phone readiness uses the HighLevel v3 contract independently of recipient-level consent.
+{
+  const { invalidateProbeCache, probeGhlSms, recordAdminAttestation } = await import("../../server/services/ghl-channel-probes");
+  const originalFetch = globalThis.fetch;
+  let payload: unknown = {
+    data: {
+      numbers: [
+        { phoneNumber: "+13055550100", capabilities: { sms: true } },
+        { phoneNumber: "+13055550101", capabilities: { sms: true }, isDefaultNumber: true },
+        { phoneNumber: "+13055550102", capabilities: { sms: false, voice: true }, type: "SMS" },
+        { phoneNumber: "+13055550103", capabilities: { sms: "true" } },
+      ],
+    },
+  };
+  globalThis.fetch = async (input, init) => {
+    assert.equal(input, "https://services.leadconnectorhq.com/phone-system/numbers/location/certification-location");
+    assert.equal(new Headers(init?.headers).get("Version"), "v3");
+    return Response.json(payload);
+  };
+  try {
+    const before = await probeGhlSms();
+    check(before.method === "api_probe" && !before.ok && before.smsSendingNumber === "+13055550101",
+      "the official v3 endpoint finds the default SMS number while A2P is still unverified");
+    check(before.phoneNumbers.filter(number => number.smsCapable).length === 2,
+      "SMS readiness requires a boolean capability on each active number");
+    await recordAdminAttestation({
+      gateKey: "a2p_campaign_approved", attestedBy: "fixture@example.test", attestationNote: "Legacy UI proof",
+    });
+    const after = await probeGhlSms();
+    check(after.ok && after.a2pApprovalAttested, "a saved legacy A2P proof refreshes the cached SMS result");
+    await recordAdminAttestation({
+      gateKey: "ghl_sms_a2p_approved", attestedBy: "fixture@example.test", attestationNote: "Current UI proof",
+    });
+    check((await probeGhlSms()).a2pAttestation?.attestationNote === "Current UI proof",
+      "the current A2P key takes precedence over the older UI key");
+    await pool.query(read("migrations/0398_restore_outbound_admin_attestations.sql"));
+    invalidateProbeCache();
+    check((await probeGhlSms()).a2pAttestation?.attestationNote === "Current UI proof",
+      "reapplying the additive migration preserves an existing A2P attestation");
+    payload = { numbers: [{ phoneNumber: "+13055550101", capabilities: { sms: true } }] };
+    invalidateProbeCache();
+    const malformed = await probeGhlSms();
+    check(!malformed.ok && !malformed.smsCapable && malformed.method === "unverified",
+      "a malformed API response cannot satisfy SMS readiness");
+  } finally {
+    globalThis.fetch = originalFetch;
+    invalidateProbeCache();
+  }
+}
+
 check(getBlockedCertificationNetworkAttemptCount() === 0, "no provider network attempt occurred during the certification");
 
 console.log(`\nSMS recipient authority: ${checks} checks passed`);

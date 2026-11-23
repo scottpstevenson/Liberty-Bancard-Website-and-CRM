@@ -103,6 +103,50 @@ try {
     check(alias.status === 200 && await inboundEvents(g.id, gMsg) === 1 && await receipts(g.id) === 1, "the same message arriving later through the specialized entrance still leaves exactly one event and one receipt");
   }
 
+  // Native HighLevel calls share the signed entrance but must not become text replies or opt-outs.
+  {
+    const c = await contact("native-voice");
+    const previousLocationId = process.env.GHL_LOCATION_ID;
+    process.env.GHL_LOCATION_ID = "fixture-voice-location";
+    const messageId = `native-voice-${tag}`;
+    const dateAdded = new Date(Date.now() - 60_000).toISOString();
+    const native = {
+      type: "InboundMessage", direction: "inbound", locationId: process.env.GHL_LOCATION_ID,
+      contactId: c.ghl, messageId, dateAdded, messageType: "CALL",
+      callStatus: "completed", callDuration: "52", body: "STOP",
+      attachments: ["https://example.test/private-call-recording"],
+    };
+    try {
+      const crossLocation = await post(GENERIC, { ...native, locationId: "unrelated-location" });
+      const invalidSignature = await post(GENERIC, native, { signature: sign("other bytes") });
+      const withoutMessageId = await post(GENERIC, { ...native, messageId: null });
+      check(crossLocation.status === 200 && invalidSignature.status === 401 && withoutMessageId.status === 200
+        && await inboundEvents(c.id) === 0, "native calls require the correct location, signature and message ID");
+      const first = await post(GENERIC, native);
+      const replay = await post(GENERIC, native, { raw: first.raw });
+      const rows = (await h.pool.query(
+        `SELECT channel, subject, body, metadata, created_at FROM communication_events WHERE contact_id=$1 AND ghl_message_id=$2`,
+        [c.id, messageId],
+      )).rows;
+      assert.deepEqual(rows.map(row => ({
+        ...row, created_at: new Date(row.created_at).toISOString(),
+      })), [{
+        channel: "call", subject: "Inbound call", body: null, created_at: dateAdded,
+        metadata: { locationId: process.env.GHL_LOCATION_ID, callStatus: "completed", durationSeconds: 52 },
+      }]);
+      check(first.status === 200 && replay.status === 200 && await receipts(c.id) === 1,
+        "a signed call converges to one metadata-only CRM event; recording and message body are discarded");
+      check((await optOutState(c.id, "sms")).length === 0, "call content cannot execute SMS STOP logic");
+      const voicemailId = `native-voicemail-${tag}`;
+      const voicemail = await post(GENERIC, { ...native, messageId: voicemailId, messageTypeString: "TYPE_VOICEMAIL" });
+      check(voicemail.status === 200 && await inboundEvents(c.id, voicemailId) === 0,
+        "the native call handler leaves voicemail to the existing voicemail sync");
+    } finally {
+      if (previousLocationId === undefined) delete process.env.GHL_LOCATION_ID;
+      else process.env.GHL_LOCATION_ID = previousLocationId;
+    }
+  }
+
   // 4. Both entrances concurrently, several message ids.
   {
     const c = await contact("race");
