@@ -8,6 +8,10 @@ process.env.GHL_WEBHOOK_SIGNATURE_PUBLIC_KEY = publicKey.export({ type: "spki", 
 process.env.GHL_LOCATION_ID = "fixture-liberty-location";
 process.env.GHL_DEFAULT_CALENDAR_ID = "FixtureSalesCalendar";
 process.env.GOOGLE_OFFLINE_UPLOAD_ENABLED = "false";
+process.env.GHL_BOOKING_CONFIRMATION_SMS_ENABLED = "false";
+// The public inquiry starts an optional AI blueprint. This fixture only owns the booking journey.
+delete process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+delete process.env.OPENAI_API_KEY;
 
 const h = await stage3BHttpFixture(async app => {
   (await import("../../server/routes/public")).registerPublicRoutes(app);
@@ -100,6 +104,9 @@ try {
     "An unlinked booking does not guess a deal");
 
   const { processGhlBookingConsentChecks } = await import("../../server/services/ghl-booking-consent");
+  const { processGhlBookingConfirmationSms } = await import("../../server/services/ghl-booking-sms");
+  const { recordAdminAttestation } = await import("../../server/services/ghl-channel-probes");
+  const { applyConsentCommand } = await import("../../server/services/consent-authority");
   const form = "fixture-sales-booking-form";
   const disclosure = "I agree to receive automated appointment confirmation texts from Liberty Bancard at the mobile number above. Message frequency: one confirmation text per opted-in appointment. This is optional and is not required to book or buy services. Message and data rates may apply. Reply STOP to opt out or HELP for help.";
   const submission = {
@@ -110,11 +117,44 @@ try {
   const originalFetch = globalThis.fetch;
   let submissions: unknown[] = [];
   let formsReads = 0;
+  let senderReads = 0;
+  let providerRefuses = false;
+  let providerDnd = false;
+  const sender = "+13055550101";
+  const campaign = "fixture_booking_campaign";
+  const sent: Array<Record<string, unknown>> = [];
+  const providerBookings = new Map([[appointmentId, { ...event.appointment, locationId: event.locationId }]]);
   globalThis.fetch = async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : input.toString());
     if (url.origin !== "https://services.leadconnectorhq.com") return originalFetch(input, init);
-    assert.equal(url.pathname, "/forms/submissions");
+    if (url.pathname === "/conversations/messages") {
+      assert.equal(init?.method, "POST");
+      assert.equal(init?.redirect, "error");
+      const message = JSON.parse(String(init?.body));
+      assert.equal(message.fromNumber, sender);
+      assert.equal(message.toNumber, submission.others.phone);
+      assert.equal(message.contactId, remoteContact);
+      assert.equal(message.type, "SMS");
+      assert.equal(message.status, "pending");
+      assert.match(message.message, /^Liberty Bancard: .+ Reply STOP to opt out\.$/);
+      sent.push(message);
+      return providerRefuses ? Response.json({}, { status: 503 }) : Response.json({ messageId: "fixture-accepted-message" });
+    }
     assert.equal(init?.method ?? "GET", "GET");
+    const appointmentPath = "/calendars/events/appointments/";
+    if (url.pathname.startsWith(appointmentPath)) {
+      senderReads++;
+      const appointment = providerBookings.get(url.pathname.slice(appointmentPath.length));
+      assert.ok(appointment, "Sender reads only bookings expressly included in the fixture");
+      const startTime = new Date(Date.parse(appointment.startTime) - 5 * 3_600_000).toISOString().replace("Z", "-05:00");
+      return Response.json({ appointment: { ...appointment, startTime } });
+    }
+    if (url.pathname === `/contacts/${remoteContact}`) {
+      senderReads++;
+      return Response.json({ contact: { id: remoteContact, locationId: event.locationId,
+        phone: submission.others.phone, dnd: false, dndSettings: { SMS: { status: providerDnd ? "active" : "inactive" } } } });
+    }
+    assert.equal(url.pathname, "/forms/submissions");
     assert.equal(url.searchParams.get("formId"), form);
     assert.equal(url.searchParams.get("locationId"), event.locationId);
     formsReads++;
@@ -124,6 +164,9 @@ try {
   try {
     process.env.GHL_PRIVATE_INTEGRATION_TOKEN = "fixture-forms-readonly";
     process.env.GHL_BOOKING_CONSENT_FORM_ID = form;
+    process.env.GHL_BOOKING_CONFIRMATION_SMS_FROM = sender;
+    process.env.GHL_BOOKING_CONFIRMATION_SMS_CAMPAIGN_ID = campaign;
+    process.env.GHL_BOOKING_CONFIRMATION_SMS_ENABLED_AT = bookedAt;
     // Hold unrelated test bookings intentionally sharing the main fixture slot.
     await q("UPDATE ghl_booking_sms_consent_checks SET next_check_at=now()+interval '1 hour' WHERE appointment_id<>$1", [appointmentId]);
     await processGhlBookingConsentChecks();
@@ -150,10 +193,79 @@ try {
       1, "Redelivery leaves one internal booking alert");
     check((await first("SELECT count(*)::int AS n FROM followup_effect_receipts WHERE channel='sms' AND owner_kind='ghl_booking_confirmation'")).n,
       0, "Consent testing cannot dispatch a booking text");
+
+    check((await processGhlBookingConfirmationSms()).state, "disabled", "Booking SMS is off even with a saved opt-in and sender settings");
+    process.env.GHL_BOOKING_CONFIRMATION_SMS_ENABLED = "true";
+    await recordAdminAttestation({ gateKey: "ghl_sms_a2p_approved", attestedBy: "fixture", attestationNote: "Existing campaign" });
+    check((await processGhlBookingConfirmationSms()).state, "carrier_approval_required", "A general A2P attestation cannot authorize booking SMS");
+    await recordAdminAttestation({
+      gateKey: `ghl_booking_confirmation_a2p:${event.locationId}:${sender}:${campaign}`,
+      attestedBy: "fixture", attestationNote: "Approved booking use case and assigned sender in fixture",
+    });
+    const makeDue = (id: string) => q("UPDATE ghl_booking_sms_consent_checks SET next_check_at=now() WHERE appointment_id=$1", [id]);
+    await makeDue(appointmentId);
+    process.env.GHL_BOOKING_CONFIRMATION_SMS_ENABLED_AT = new Date(Date.now() + 60_000).toISOString();
+    check((await processGhlBookingConfirmationSms()).checked, 0, "Bookings predating activation are excluded");
+    check(senderReads, 0, "The sender does no provider reads when the gates are closed");
+    process.env.GHL_BOOKING_CONFIRMATION_SMS_ENABLED_AT = bookedAt;
+
+    // Signed booking requests can predate the CRM contact link. The exact saved form consent binds the recipient.
+    await q("UPDATE inbound_requests SET contact_id=NULL WHERE occurrence_key=$1", [`ghl:appointment_booked:${appointmentId}`]);
+    const attempts = await Promise.all([processGhlBookingConfirmationSms(), processGhlBookingConfirmationSms()]);
+    check(attempts.reduce((total, attempt) => total + (attempt.accepted ?? 0), 0), 1, "Concurrent recovery ticks accept one opted-in booking");
+    check(sent.map(value => value.appointmentId), [appointmentId], "Only the exact booking with affirmative consent is texted");
+    const receipt = (id: string) => first("SELECT state,detail FROM followup_effect_receipts WHERE effect_key=$1", [`ghl_booking_confirmation:${id}:sms`]);
+    check(await receipt(appointmentId), { state: "accepted", detail: "fixture-accepted-message" }, "The CRM keeps HighLevel's message ID");
+    await makeDue(appointmentId);
+    check((await processGhlBookingConfirmationSms()).checked, 0, "A settled booking remains fenced on later ticks");
+
+    async function addOptedInBooking(suffix: string, hours: number) {
+      const id = appointmentId + "-" + suffix;
+      const startTime = new Date(Date.parse(event.appointment.startTime) + hours * 3_600_000).toISOString();
+      const appointment = { ...event.appointment, id, startTime, locationId: event.locationId };
+      providerBookings.set(id, appointment);
+      check((await deliver({ ...event, appointment })).body.applied, true, "Records the signed " + suffix + " fixture");
+      submissions = [{ ...submission, id: suffix + "-" + tag, others: { ...submission.others, selected_slot: startTime } }];
+      await processGhlBookingConsentChecks();
+      check((await consentCheck(id)).state, "opted_in", "Saves appointment-specific consent for " + suffix);
+      await makeDue(id);
+      return appointment;
+    }
+
+    const later = await addOptedInBooking("later", 2);
+    providerBookings.set(later.id, { ...later, appointmentStatus: "cancelled" });
+    check((await processGhlBookingConfirmationSms()).held, 1, "A cancelled provider appointment is held");
+    providerBookings.set(later.id, later);
+    providerDnd = true;
+    await makeDue(later.id);
+    check((await processGhlBookingConfirmationSms()).held, 1, "HighLevel SMS DND holds an opted-in booking");
+    providerDnd = false;
+    await q("UPDATE contacts SET phone='+19545550148' WHERE id=$1", [contact.id]);
+    await makeDue(later.id);
+    check((await processGhlBookingConfirmationSms()).held, 1, "A phone change invalidates the captured SMS permission");
+    await q("UPDATE contacts SET phone=$1 WHERE id=$2", [submission.others.phone, contact.id]);
+    providerRefuses = true;
+    await makeDue(later.id);
+    check((await processGhlBookingConfirmationSms()).unknown, 1, "An ambiguous provider response is recorded for review");
+    check(await receipt(later.id), { state: "unknown", detail: "GHL_AMBIGUOUS_DISPATCH: booking confirmation HTTP 503" },
+      "The CRM records the uncertain attempt");
+    await makeDue(later.id);
+    check((await processGhlBookingConfirmationSms()).checked, 0, "An uncertain attempt cannot be resent by recovery");
+    providerRefuses = false;
+
+    await addOptedInBooking("stopped", 3);
+    await applyConsentCommand({
+      subject: { type: "contact", id: contact.id }, kind: "opt_out", channel: "sms",
+      eventNamespace: "fixture_sms_stop", eventKey: tag, source: "fixture_sms",
+      evidence: { keyword: "STOP", senderPhone: submission.others.phone },
+    });
+    check((await processGhlBookingConfirmationSms()).held, 1, "A later STOP blocks an already opted-in appointment");
+    check(sent.map(value => value.appointmentId), [appointmentId, later.id], "Only authorized fixture attempts reached the provider mock");
   } finally {
     globalThis.fetch = originalFetch;
     delete process.env.GHL_PRIVATE_INTEGRATION_TOKEN;
     delete process.env.GHL_BOOKING_CONSENT_FORM_ID;
+    process.env.GHL_BOOKING_CONFIRMATION_SMS_ENABLED = "false";
   }
 
   // Supporting statement and application facts are synthetic persisted domain records.

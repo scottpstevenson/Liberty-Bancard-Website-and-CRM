@@ -11,7 +11,7 @@
  */
 import { sql } from "drizzle-orm";
 import { db } from "../db";
-import { normalizeConsentPhone } from "./consent-authority";
+import { BOOKING_CONFIRMATION_SMS_PURPOSE, normalizeConsentPhone } from "./consent-authority";
 
 export type SmsDenialCode =
   | "contact_not_found"
@@ -51,6 +51,8 @@ export interface SmsRecipientInput {
    */
   boundPhone?: string | null;
   commercialPurpose?: "marketing_outreach" | "transactional_response";
+  /** Caller must already have verified the affirmative consent event for this exact booking. */
+  transactionalConsentPurpose?: typeof BOOKING_CONFIRMATION_SMS_PURPOSE;
   inboundRequestId?: string;
   intendedRecipientContactId?: number;
   /** Test seam for quiet hours; production callers omit it. */
@@ -89,6 +91,8 @@ interface SubjectRestriction {
   normalized_phone: string | null;
   sms_state: string | null;
   sms_evidence: any;
+  booking_sms_state: string | null;
+  booking_sms_evidence: any;
   globally_suppressed: boolean;
 }
 
@@ -115,8 +119,12 @@ export async function resolveSmsRecipient(input: SmsRecipientInput): Promise<Sms
              WHERE cs.subject_id = s.id AND cs.channel = 'sms' AND cs.purpose = 'outreach') AS sms_state,
            (SELECT cs.evidence FROM consent_subject_channel_states cs
              WHERE cs.subject_id = s.id AND cs.channel = 'sms' AND cs.purpose = 'outreach') AS sms_evidence,
+           booking.permission_state AS booking_sms_state,
+           booking.evidence AS booking_sms_evidence,
            COALESCE((SELECT g.is_suppressed FROM consent_subject_global_suppressions g WHERE g.subject_id = s.id), false) AS globally_suppressed
       FROM consent_subjects s
+      LEFT JOIN consent_subject_channel_states booking ON booking.subject_id = s.id AND booking.channel = 'sms'
+        AND booking.purpose = ${input.transactionalConsentPurpose ?? null}
      WHERE (s.subject_type = 'contact' AND s.subject_record_id = ${input.contactId})
         OR (s.subject_type = 'sdr_lead_state' AND s.subject_record_id = ${leadStateId})
   `)) as any).rows as SubjectRestriction[] ?? [];
@@ -156,14 +164,17 @@ export async function resolveSmsRecipient(input: SmsRecipientInput): Promise<Sms
 
   // Transactional responses to an inbound request: the contact subject must hold a positive SMS permission.
   const contactSubject = subjects.find(subject => subject.subject_type === "contact");
-  if (!contactSubject || contactSubject.sms_state !== "permitted") {
+  const bookingOnly = input.transactionalConsentPurpose === BOOKING_CONFIRMATION_SMS_PURPOSE;
+  const selectedState = bookingOnly ? contactSubject?.booking_sms_state : contactSubject?.sms_state;
+  if (!contactSubject || selectedState !== "permitted") {
     return deny("consent_not_recorded", "No canonical SMS permission is recorded for this contact");
   }
+  const evidence = bookingOnly ? contactSubject.booking_sms_evidence : contactSubject.sms_evidence;
   const evidencePhone = normalizeConsentPhone(
-    typeof contactSubject.sms_evidence?.consentedPhone === "string" ? contactSubject.sms_evidence.consentedPhone : null);
+    typeof evidence?.consentedPhone === "string" ? evidence.consentedPhone : null);
   // Positive evidence of the number the permission covers is required: a permission recorded before any number existed
   // must not extend to a number added later.
-  const permittedFor = evidencePhone ?? normalizeConsentPhone(contactSubject.normalized_phone);
+  const permittedFor = evidencePhone ?? (bookingOnly ? null : normalizeConsentPhone(contactSubject.normalized_phone));
   if (!permittedFor || permittedFor !== currentPhone) {
     return deny("consent_not_bound_to_number", "SMS permission is not recorded for the contact's current number");
   }

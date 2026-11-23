@@ -79,7 +79,7 @@ export const handleMarketplaceBooking: RequestHandler = async (req, res, next) =
       }
       if (verdict.decision !== "apply") return res.json({ received: true, applied: false, reason: verdict.decision });
 
-      // HighLevel's calendar workflow owns confirmations. This event writes CRM evidence only.
+      // The webhook only writes CRM evidence. Booking SMS runs later from verified form consent.
       const projection = await projectVerifiedGhlBooking(booking);
       return res.json({ received: true, applied: true, outcome: projection.outcome });
     } catch (error) {

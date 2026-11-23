@@ -80,6 +80,10 @@ HighLevel's built-in Missed Call Text Back runs independently of the CRM's outbo
 
 The public Sales Meeting form collects an optional, appointment-only SMS choice. Liberty checks the signed booking against HighLevel's matching form submission and exact CRM phone. The consent record stays scoped to that appointment and does not grant outreach permission. The recovery tick checks delayed form submissions. Automatic booking SMS stays disabled.
 
+For an authorized activation, verify that HighLevel has approved the booking use case and assigned the sender number to that campaign. Record the carrier approval through the existing admin attestation endpoint with the key `ghl_booking_confirmation_a2p:<location-id>:<E.164-number>:<campaign-id>`. Record the campaign and sender evidence in the attestation note. Set `GHL_BOOKING_CONFIRMATION_SMS_FROM`, `GHL_BOOKING_CONFIRMATION_SMS_CAMPAIGN_ID` and `GHL_BOOKING_CONFIRMATION_SMS_ENABLED_AT` (ISO timestamp with an explicit offset). The sender requires `GHL_BOOKING_CONFIRMATION_SMS_ENABLED=true` and only considers bookings created from the activation time onward. Leave it disabled until the approved sender assignment and a staff pilot have been arranged.
+
+The recovery heartbeat reports booking SMS outcomes. Each attempt has a durable receipt in `followup_effect_receipts` under `ghl_booking_confirmation`. A HighLevel message ID confirms provider acceptance. Use HighLevel Conversations to verify carrier delivery or investigate an uncertain outcome before taking any manual action.
+
 Signed incoming calls and texts and confirmed Sales Meeting bookings queue staff-only emails to Scott through the existing intake alert outbox. The alerts contain a CRM link, with message bodies and call recordings kept in their respective systems. The Voice AI summary email remains managed in HighLevel. Verify the internal outbox and opt-in counts at `/api/admin/team-intake-alerts/status`. SMTP acceptance and inbox arrival are separate checks.
 
 ---
