@@ -35,10 +35,12 @@ function senderConfig() {
   const fromNumber = process.env.GHL_BOOKING_CONFIRMATION_SMS_FROM?.trim() ?? "";
   const campaign = process.env.GHL_BOOKING_CONFIRMATION_SMS_CAMPAIGN_ID?.trim() ?? "";
   const activation = dateTime.safeParse(process.env.GHL_BOOKING_CONFIRMATION_SMS_ENABLED_AT);
+  const pilotPhone = process.env.GHL_BOOKING_CONFIRMATION_SMS_PILOT_TO?.trim();
   if (!sales.available || !token || !locationId || !usPhone.test(fromNumber)
-    || !/^[a-z0-9_-]{1,64}$/i.test(campaign) || !activation.success) return null;
+    || !/^[a-z0-9_-]{1,64}$/i.test(campaign) || !activation.success
+    || (pilotPhone !== undefined && !usPhone.test(pilotPhone))) return null;
   return {
-    token, locationId, fromNumber, calendarId: sales.calendarId, enabledAt: activation.data,
+    token, locationId, fromNumber, calendarId: sales.calendarId, enabledAt: activation.data, pilotPhone,
     attestationKey: `ghl_booking_confirmation_a2p:${locationId}:${fromNumber}:${campaign}`,
   };
 }
@@ -78,6 +80,7 @@ async function readBoundRecipient(config: SenderConfig, booking: Booking) {
   if (!recipient) return null;
   const phone = normalizeConsentPhone(recipient.phone);
   if (!phone || !usPhone.test(phone) || normalizeConsentPhone(recipient.consented_phone) !== phone) return null;
+  if (config.pilotPhone && phone !== config.pilotPhone) return null;
   const result = await resolveSmsRecipient({
     contactId: recipient.id, purpose: "booking_confirmation", boundPhone: phone,
     commercialPurpose: "transactional_response", transactionalConsentPurpose: BOOKING_CONFIRMATION_SMS_PURPOSE,
@@ -210,6 +213,9 @@ export async function processGhlBookingConfirmationSms() {
         AND q.booking_created_at BETWEEN now() - interval '30 minutes' AND now()
         AND a.location_id = $2 AND a.calendar_id = $3 AND a.ghl_contact_id IS NOT NULL
         AND a.status = 'booked' AND a.start_time = q.booking_start_time AND a.start_time > now()
+        AND ($4::text IS NULL OR EXISTS (
+          SELECT 1 FROM consent_audit_logs e WHERE e.id = q.consent_event_id AND e.consented_phone = $4
+        ))
         AND NOT EXISTS (
           SELECT 1 FROM followup_effect_receipts r
           WHERE r.effect_key = 'ghl_booking_confirmation:' || q.appointment_id || ':sms'
@@ -220,7 +226,7 @@ export async function processGhlBookingConfirmationSms() {
     UPDATE ghl_booking_sms_consent_checks q SET next_check_at = now() + interval '1 minute'
     FROM due WHERE q.appointment_id = due.appointment_id
     RETURNING q.appointment_id, due.ghl_contact_id, q.request_id, q.booking_start_time
-  `, [config.enabledAt, config.locationId, config.calendarId]);
+  `, [config.enabledAt, config.locationId, config.calendarId, config.pilotPhone ?? null]);
 
   const counts = { accepted: 0, refused: 0, unknown: 0, held: 0, errors: 0 };
   for (const booking of rows) {
@@ -230,5 +236,5 @@ export async function processGhlBookingConfirmationSms() {
       counts.errors++;
     }
   }
-  return { state: "active", checked: rows.length, ...counts };
+  return { state: "active", staffPilot: config.pilotPhone !== undefined, checked: rows.length, ...counts };
 }

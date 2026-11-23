@@ -208,6 +208,14 @@ try {
     check((await processGhlBookingConfirmationSms()).checked, 0, "Bookings predating activation are excluded");
     check(senderReads, 0, "The sender does no provider reads when the gates are closed");
     process.env.GHL_BOOKING_CONFIRMATION_SMS_ENABLED_AT = bookedAt;
+    process.env.GHL_BOOKING_CONFIRMATION_SMS_PILOT_TO = "";
+    check((await processGhlBookingConfirmationSms()).state, "unconfigured", "A blank pilot recipient fails closed");
+    process.env.GHL_BOOKING_CONFIRMATION_SMS_PILOT_TO = "+19545550199";
+    const otherRecipient = await processGhlBookingConfirmationSms();
+    check(otherRecipient.staffPilot, true, "The recovery heartbeat identifies pilot mode");
+    check(otherRecipient.checked, 0, "An opted-in booking outside the pilot does not reach the sender");
+    check(senderReads, 0, "A non-pilot booking does not trigger provider reads");
+    process.env.GHL_BOOKING_CONFIRMATION_SMS_PILOT_TO = submission.others.phone;
 
     // Signed booking requests can predate the CRM contact link. The exact saved form consent binds the recipient.
     await q("UPDATE inbound_requests SET contact_id=NULL WHERE occurrence_key=$1", [`ghl:appointment_booked:${appointmentId}`]);
@@ -218,6 +226,7 @@ try {
     check(await receipt(appointmentId), { state: "accepted", detail: "fixture-accepted-message" }, "The CRM keeps HighLevel's message ID");
     await makeDue(appointmentId);
     check((await processGhlBookingConfirmationSms()).checked, 0, "A settled booking remains fenced on later ticks");
+    delete process.env.GHL_BOOKING_CONFIRMATION_SMS_PILOT_TO;
 
     async function addOptedInBooking(suffix: string, hours: number) {
       const id = appointmentId + "-" + suffix;
@@ -265,6 +274,7 @@ try {
     globalThis.fetch = originalFetch;
     delete process.env.GHL_PRIVATE_INTEGRATION_TOKEN;
     delete process.env.GHL_BOOKING_CONSENT_FORM_ID;
+    delete process.env.GHL_BOOKING_CONFIRMATION_SMS_PILOT_TO;
     process.env.GHL_BOOKING_CONFIRMATION_SMS_ENABLED = "false";
   }
 
