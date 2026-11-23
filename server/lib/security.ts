@@ -1,5 +1,7 @@
 import cors, { type CorsOptions } from "cors";
+import type { RequestHandler } from "express";
 import helmet, { type HelmetOptions } from "helmet";
+import { publicTrackingContext } from "../../shared/public-tracking-context";
 
 export type SecurityEnvironment = "production" | "development";
 
@@ -15,6 +17,13 @@ export const PRODUCTION_SCRIPT_SOURCES = [
   "www.googletagmanager.com",
   "connect.facebook.net",
 ] as const;
+
+const GOOGLE_ADS_SCRIPT_SOURCES = ["www.googleadservices.com", "www.google.com"];
+const GOOGLE_ADS_MEASUREMENT_SOURCES = [
+  ...GOOGLE_ADS_SCRIPT_SOURCES,
+  "googleads.g.doubleclick.net",
+  "pagead2.googlesyndication.com",
+];
 
 const DEVELOPMENT_HMR_EXCEPTION = "'unsafe-inline'";
 
@@ -34,12 +43,13 @@ export function getScriptSources(environment: SecurityEnvironment): string[] {
     : [...PRODUCTION_SCRIPT_SOURCES];
 }
 
-export function getHelmetOptions(environment: SecurityEnvironment): HelmetOptions {
+export function getHelmetOptions(environment: SecurityEnvironment, publicAds = false): HelmetOptions {
+  const adsMeasurementSources = publicAds ? GOOGLE_ADS_MEASUREMENT_SOURCES : [];
   return {
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: getScriptSources(environment),
+        scriptSrc: [...getScriptSources(environment), ...(publicAds ? GOOGLE_ADS_SCRIPT_SOURCES : [])],
         styleSrc: [
           "'self'",
           "'unsafe-inline'",
@@ -58,6 +68,7 @@ export function getHelmetOptions(environment: SecurityEnvironment): HelmetOption
           "data:",
           "blob:",
           "*.google-analytics.com",
+          ...adsMeasurementSources,
           "*.googletagmanager.com",
           "*.facebook.com",
           "*.leadconnectorhq.com",
@@ -73,8 +84,10 @@ export function getHelmetOptions(environment: SecurityEnvironment): HelmetOption
           "services.msgsndr.com",
           "*.googletagmanager.com",
           "*.google-analytics.com",
+          ...adsMeasurementSources,
           "*.facebook.com",
           "connect.facebook.net",
+          ...(publicAds ? ["ad.doubleclick.net"] : []),
         ],
         frameSrc: [
           "'self'",
@@ -82,6 +95,7 @@ export function getHelmetOptions(environment: SecurityEnvironment): HelmetOption
           "*.ghl.io",
           "*.youtube.com",
           "*.youtube-nocookie.com",
+          ...(publicAds ? ["www.googletagmanager.com"] : []),
         ],
         frameAncestors: ["'self'"],
       },
@@ -134,10 +148,13 @@ export function createSecurityMiddleware(
   allowedOrigins: readonly string[],
   environment: SecurityEnvironment,
 ) {
-  return {
-    helmet: helmet(getHelmetOptions(environment)),
-    cors: cors(getCorsOptions(allowedOrigins, environment)),
+  const protectedHeaders = helmet(getHelmetOptions(environment));
+  const publicHeaders = helmet(getHelmetOptions(environment, true));
+  const securityHeaders: RequestHandler = (req, res, next) => {
+    const headers = publicTrackingContext(req.path) ? publicHeaders : protectedHeaders;
+    headers(req, res, next);
   };
+  return { helmet: securityHeaders, cors: cors(getCorsOptions(allowedOrigins, environment)) };
 }
 
 export function isDeniedCorsOriginError(error: unknown): error is DeniedCorsOriginError {

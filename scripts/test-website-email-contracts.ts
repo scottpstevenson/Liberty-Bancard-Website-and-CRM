@@ -191,13 +191,17 @@ check("E01 source matrix: only the four website sources reach the lane; support,
 
 // ── E02: frozen policy replay ───────────────────────────────────────────────
 check("E02 an occurrence frozen under an older inbound contract never gains a warm effect", () => {
-  assert.deepEqual([...WARM_CAPABLE_MANIFEST_VERSIONS], ["cro05a-v3"]);
-  for (const version of ["cro05a-v2", "cro05a-v1", "", "cro05a-v4"]) {
+  assert.deepEqual([...WARM_CAPABLE_MANIFEST_VERSIONS], ["cro05a-v3", "cro05a-v4"]);
+  for (const version of ["cro05a-v2", "cro05a-v1", "", "cro05a-v5"]) {
     const f = facts("nurture", { request: { sourceCategory: "website_form", sourceType: "estimate_form", manifestVersion: version, receivedAt: RECEIVED, submittedEmailHash: emailTokenHash("owner@example.com") } });
     assert.equal(refusal(f).reason, "FROZEN_POLICY_NO_WARM_EFFECT", version || "(empty)");
     assert.equal(refusal(f).held, false, "a frozen policy is terminal, not held");
   }
-  assert.equal(decideWebsiteWarmAdmission(facts("nurture")).allowed, true, "negative control: the current contract is admitted");
+  const current = facts("nurture");
+  assert.equal(decideWebsiteWarmAdmission(current).allowed, true, "the original warm-capable contract is still admitted");
+  assert.ok(current.request);
+  assert.equal(decideWebsiteWarmAdmission({ ...current, request: { ...current.request, manifestVersion: "cro05a-v4" } }).allowed,
+    true, "the current contract preserves warm admission and consent requirements");
 });
 
 // ── E05: scoped authority ───────────────────────────────────────────────────

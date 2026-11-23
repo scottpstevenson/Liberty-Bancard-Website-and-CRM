@@ -50,7 +50,7 @@ export function laneSourceKey(sourceCategory: string, sourceType: string): strin
 }
 
 /** Inbound manifest versions whose frozen contract includes the warm effects. Older versions never gain them. */
-export const WARM_CAPABLE_MANIFEST_VERSIONS: readonly string[] = ["cro05a-v3"];
+export const WARM_CAPABLE_MANIFEST_VERSIONS: readonly string[] = ["cro05a-v3", "cro05a-v4"];
 
 /** A held intent older than this is refused instead of released: no historical catch-up. */
 export const WARM_HELD_MAX_AGE_MS = 72 * 60 * 60 * 1000;

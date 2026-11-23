@@ -362,9 +362,9 @@ export async function readSenderFacts(exec: Exec, now: Date): Promise<{ category
   let fresh = false;
   if (evidence.account) {
     const reader = rowsOf(await exec.execute(sql`
-      SELECT state, last_success_at FROM gmail_mailbox_reader_state WHERE account_email = ${evidence.account}
+      SELECT state, last_success_at, last_error, phase7_history_complete FROM gmail_mailbox_reader_state WHERE account_email = ${evidence.account}
     `))[0];
-    fresh = Boolean(reader && reader.state === "active" && reader.last_success_at
+    fresh = Boolean(reader && reader.state === "active" && !reader.last_error && reader.phase7_history_complete && reader.last_success_at
       && now.getTime() - new Date(reader.last_success_at).getTime() <= READER_FRESH_MS);
   }
   return { category: NON_COLD_GMAIL_SENDER_CATEGORY, replyPathProven: owns && fresh, account: evidence.account, replyTo };

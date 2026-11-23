@@ -1,5 +1,5 @@
 import { adsMeasurementKey } from "./ads-measurement-consent";
-import { publicTrackingContext, safeCampaignValue } from "./tracking-context";
+import { publicTrackingContext, safeCampaignValue } from "@shared/public-tracking-context";
 
 const UTM_STORAGE_KEY = "lb_utm_params";
 const LANDING_PAGE_KEY = "lb_landing_page";

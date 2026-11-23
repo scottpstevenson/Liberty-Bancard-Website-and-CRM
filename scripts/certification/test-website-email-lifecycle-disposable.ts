@@ -438,13 +438,15 @@ try {
   const fakeInbox = {
     profileHistory: "1000", history: [] as any[], messages: new Map<string, any>(), failOn: new Set<string>(), listError: null as any,
     listCalls: [] as any[], getCalls: [] as any[], nextHistoryId: "1000",
+    pages: null as Array<{ history: any[]; historyId: string; nextPageToken?: string }> | null,
   };
   const fakeGmailClient = () => ({
     ok: true as const, account: ACCOUNT,
     gmail: {
       users: {
         getProfile: async () => ({ data: { historyId: fakeInbox.profileHistory } }),
-        history: { list: async (args: any) => { fakeInbox.listCalls.push(args); if (fakeInbox.listError) throw fakeInbox.listError; const history = fakeInbox.history; return { data: { history, historyId: fakeInbox.nextHistoryId } }; } },
+        history: { list: async (args: any) => { fakeInbox.listCalls.push(args); if (fakeInbox.listError) throw fakeInbox.listError; if (fakeInbox.pages) return { data: fakeInbox.pages[args.pageToken ? Number(args.pageToken) : 0] };
+          return { data: { history: fakeInbox.history, historyId: fakeInbox.nextHistoryId } }; } },
         messages: { get: async (args: any) => { fakeInbox.getCalls.push(args); if (fakeInbox.failOn.has(args.id)) throw Object.assign(new Error("boom"), { code: 500 }); const m = fakeInbox.messages.get(args.id); if (!m) throw Object.assign(new Error("not found"), { code: 404 }); return { data: m }; } },
       },
     },
@@ -464,6 +466,8 @@ try {
     const state = (await q(`SELECT history_cursor, account_fingerprint FROM gmail_mailbox_reader_state`))[0];
     eq(state.history_cursor, "1000", "S5 the cursor starts at the profile history id");
     ok(state.account_fingerprint, "S5 the account fingerprint is bound");
+    eq((await h.request("admin", "POST", "/api/admin/website-email/reader/open", {})).status, 200, "S5 repeating open succeeds");
+    eq((await q("SELECT history_cursor FROM gmail_mailbox_reader_state"))[0].history_cursor, "1000", "S5 repeating open preserves the active cursor");
   }
 
   // ═══ S6 admission (E04/E05): class, identity, consent, revision binding ═════════════════════════════════════
@@ -908,6 +912,36 @@ try {
     eq(retry.status, "polled", "S10 the retry succeeds");
     ok(retry.duplicates >= 1, "S10 the retry recognizes the already-applied message");
     eq((await q(`SELECT history_cursor FROM gmail_mailbox_reader_state`))[0].history_cursor, "5000", "S10 the cursor advances only after the page is durably applied");
+  }
+  {
+    resetInboxPage();
+    addMessage("paged-1", { From: "observer@example.test", "Message-ID": "<paged1@x>" });
+    addMessage("paged-2", { From: "observer@example.test", "Message-ID": "<paged2@x>" });
+    const [first, second] = fakeInbox.history;
+    const start = (await q("SELECT history_cursor FROM gmail_mailbox_reader_state"))[0].history_cursor;
+    fakeInbox.pages = [
+      { history: [{ ...first, id: "5100" }], historyId: "5300", nextPageToken: "1" },
+      { history: [{ ...second, id: "5200" }], historyId: "5300" },
+    ];
+    const offset = fakeInbox.listCalls.length;
+    const paged = await poll();
+    fakeInbox.pages = null;
+    eq(paged.messages, 2, "S10 both Gmail history pages are applied");
+    eq(fakeInbox.listCalls.slice(offset).map(c => c.startHistoryId), [start, start], "S10 page tokens retain the original start cursor");
+    eq(fakeInbox.listCalls.at(-1).pageToken, "1", "S10 the second page uses Gmail's token");
+    eq((await q("SELECT history_cursor FROM gmail_mailbox_reader_state"))[0].history_cursor, "5300", "S10 a complete batch checkpoints the mailbox history ID");
+
+    resetInboxPage();
+    addMessage("message-gone", { From: "observer@example.test", "Message-ID": "<gone@x>" });
+    fakeInbox.messages.delete("message-gone");
+    const gone = await poll();
+    eq(gone.code, "GMAIL_MESSAGE_UNAVAILABLE", "S10 a missing message is distinct from expired mailbox history");
+    eq((await q("SELECT history_cursor FROM gmail_mailbox_reader_state"))[0].history_cursor, "5300", "S10 a missing message cannot advance the cursor");
+    eq((await store.readSenderFacts(h.db as any, new Date())).replyPathProven, false, "S10 a reader error immediately blocks the reply path");
+    resetInboxPage();
+    const wrong = await reader.pollMailboxOnce({ getClient: async () => ({ ...fakeGmailClient(), account: "other@example.test" }) });
+    eq(wrong.code, "MAILBOX_ACCOUNT_CHANGED", "S10 reader refuses a substituted provider account before reading");
+    await q("UPDATE gmail_mailbox_reader_state SET state='active', last_error=NULL");
   }
   {
     // Expired cursor never backfills; an account switch refuses.

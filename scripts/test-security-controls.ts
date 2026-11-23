@@ -44,7 +44,7 @@ async function withSecurityFixture(
     if (!isDeniedCorsOriginError(error)) return next(error);
     return res.status(403).json({ message: "CORS origin denied" });
   });
-  app.all("/resource", (_req, res) => res.status(200).json({ ok: true }));
+  app.all(["/resource", "/upload-statement", "/industries/auto-repair-payment-processing", "/dashboard/intake", "/api/public/estimate"], (_req, res) => res.status(200).json({ ok: true }));
 
   const server = createServer(app);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -121,6 +121,22 @@ async function main(): Promise<void> {
 
   console.log("\n── 2. CORS behavior and security-header ordering ─────────────");
   await withSecurityFixture(async (baseUrl) => {
+    const policy = async (path: string) => (await fetch(baseUrl + path)).headers.get("content-security-policy") ?? "";
+    const adsHosts = ["www.googleadservices.com", "googleads.g.doubleclick.net", "pagead2.googlesyndication.com"];
+    for (const path of ["/upload-statement", "/industries/auto-repair-payment-processing"]) {
+      const header = await policy(path);
+      for (const directive of ["img-src", "connect-src"]) {
+        const sources = header.split(";").find(value => value.startsWith(directive + " "))?.split(" ") ?? [];
+        check(adsHosts.every(host => sources.includes(host)), `${path} permits Google Ads in ${directive}`);
+      }
+      check(!header.split(";").find(value => value.startsWith("script-src "))?.includes("'unsafe-inline'"),
+        `${path} keeps production inline script protection`);
+    }
+    for (const path of ["/dashboard/intake", "/api/public/estimate"]) {
+      const header = await policy(path);
+      check(adsHosts.every(host => !header.includes(host)), `${path} keeps Ads endpoints outside its policy`);
+    }
+
     const allowed = await fetch(`${baseUrl}/resource`, {
       headers: { Origin: "https://allowed.example" },
     });

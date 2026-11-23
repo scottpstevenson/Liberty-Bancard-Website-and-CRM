@@ -51,7 +51,7 @@ const tally = (status: ReaderStatus, code?: string): ReaderTally => ({ status, c
 export interface ReaderGmail {
   users: {
     getProfile(args: { userId: string }): Promise<{ data: { historyId?: string | null } }>;
-    history: { list(args: Record<string, unknown>): Promise<{ data: { history?: Array<{ messagesAdded?: Array<{ message?: { id?: string | null; labelIds?: string[] | null } }> }>; historyId?: string | null; nextPageToken?: string | null } }> };
+    history: { list(args: Record<string, unknown>): Promise<{ data: { history?: Array<{ id?: string | null; messagesAdded?: Array<{ message?: { id?: string | null; labelIds?: string[] | null } }> }>; historyId?: string | null; nextPageToken?: string | null } }> };
     messages: { get(args: Record<string, unknown>): Promise<{ data: { id?: string | null; threadId?: string | null; labelIds?: string[] | null; internalDate?: string | null; payload?: { headers?: Array<{ name?: string | null; value?: string | null }> } } }> };
   };
 }
@@ -78,6 +78,8 @@ export async function openMailboxReader(): Promise<{ ok: true; account: string }
       SET state = 'active', history_cursor = NULL, last_error = NULL, lease_token = NULL, lease_expires_at = NULL,
       phase7_generation=gen_random_uuid(),phase7_history_complete=false,last_success_at=NULL,
           account_fingerprint = ${fingerprint(account)}, updated_at = now()
+    WHERE gmail_mailbox_reader_state.state <> 'active'
+       OR gmail_mailbox_reader_state.account_fingerprint IS DISTINCT FROM EXCLUDED.account_fingerprint
   `);
   return { ok: true, account };
 }
@@ -257,10 +259,12 @@ export async function pollMailboxOnce(overrides: Partial<ReaderDeps> = {}): Prom
 
   if (claimed.account_fingerprint && claimed.account_fingerprint !== fingerprint(account)) return fail("MAILBOX_ACCOUNT_CHANGED", "needs_resync", true);
 
-  const client = await deps.getClient();
-  if (!client.ok) return fail(client.code);
-  const gmail = client.gmail as ReaderGmail;
+  let readingHistory = false;
   try {
+    const client = await deps.getClient();
+    if (!client.ok) return fail(client.code);
+    if (client.account.toLowerCase() !== account) return fail("MAILBOX_ACCOUNT_CHANGED", "needs_resync", true);
+    const gmail = client.gmail as ReaderGmail;
     if (!claimed.history_cursor) {
       const profile = await gmail.users.getProfile({ userId: "me" });
       const historyId = profile.data.historyId;
@@ -270,15 +274,18 @@ export async function pollMailboxOnce(overrides: Partial<ReaderDeps> = {}): Prom
     }
 
     const out = tally("polled");
-    let cursor = String(claimed.history_cursor);
+    const startHistoryId = String(claimed.history_cursor);
+    let cursor = startHistoryId;
     let pageToken: string | undefined;
     for (let page = 0; page < MAX_HISTORY_PAGES; page++) {
-      const res = await gmail.users.history.list({ userId: "me", startHistoryId: cursor, historyTypes: ["messageAdded"], maxResults: 100, ...(pageToken ? { pageToken } : {}) });
+      readingHistory = true;
+      // Gmail page tokens continue the original history query. The durable cursor is for the next poll.
+      const res = await gmail.users.history.list({ userId: "me", startHistoryId, historyTypes: ["messageAdded"], maxResults: 100, ...(pageToken ? { pageToken } : {}) });
+      readingHistory = false;
       const added = new Map<string, string[]>();
       let lastRecordId: string | null = null;
       for (const h of res.data.history ?? []) {
-        const recordId = (h as { id?: string | null }).id;
-        if (recordId) lastRecordId = String(recordId);
+        if (h.id) lastRecordId = h.id;
         for (const m of h.messagesAdded ?? []) if (m.message?.id) added.set(m.message.id, m.message.labelIds ?? []);
       }
       out.messages += added.size;
@@ -311,7 +318,8 @@ export async function pollMailboxOnce(overrides: Partial<ReaderDeps> = {}): Prom
   } catch (error) {
     const status = Number((error as { code?: unknown; response?: { status?: unknown } })?.response?.status ?? (error as { code?: unknown })?.code);
     // 404 on a history id means Google no longer holds the cursor. Never guess a range or backfill: require a resync.
-    if (status === 404) return fail("HISTORY_CURSOR_EXPIRED", "needs_resync", true);
+    if (status === 404 && readingHistory) return fail("HISTORY_CURSOR_EXPIRED", "needs_resync", true);
+    if (status === 404) return fail("GMAIL_MESSAGE_UNAVAILABLE", "error");
     if (status === 401 || status === 403) return fail("GMAIL_READ_ACCESS_REFUSED", "unavailable");
     return fail("GMAIL_READ_FAILED", "error");
   }

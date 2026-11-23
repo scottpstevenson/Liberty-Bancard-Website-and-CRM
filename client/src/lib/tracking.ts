@@ -1,5 +1,5 @@
 import { revokeAdsMeasurement, retryAdsMeasurementRevocation } from "./ads-measurement-consent";
-import { publicTrackingContext, safeReferrer, safeCampaignValue } from "./tracking-context";
+import { publicTrackingContext, safeReferrer, safeCampaignValue } from "@shared/public-tracking-context";
 
 declare global {
   interface Window {
@@ -21,7 +21,9 @@ const GOOGLE_TAG_ID = configuredGoogleTag && /^(?:G|GT)-[A-Z0-9]+$/.test(configu
   ? configuredGoogleTag
   : GA_ID;
 const FB_PIXEL_ID = typeof import.meta.env !== "undefined" ? import.meta.env.VITE_FB_PIXEL_ID : runtimeEnv?.VITE_FB_PIXEL_ID;
-const ADS_DESTINATION = typeof import.meta.env !== "undefined" ? import.meta.env.VITE_GOOGLE_ADS_LEAD_CONVERSION : runtimeEnv?.VITE_GOOGLE_ADS_LEAD_CONVERSION;
+const configuredAdsDestination = typeof import.meta.env !== "undefined" ? import.meta.env.VITE_GOOGLE_ADS_LEAD_CONVERSION : runtimeEnv?.VITE_GOOGLE_ADS_LEAD_CONVERSION;
+const ADS_DESTINATION = configuredAdsDestination?.match(/^AW-\d+\/[A-Za-z0-9_-]+$/)?.[0];
+const ADS_TAG_ID = ADS_DESTINATION?.split("/")[0];
 
 export type TrackingConsentPreferences = { analytics: boolean; marketing: boolean };
 export type CookieConsentPreferences = TrackingConsentPreferences & {
@@ -97,7 +99,7 @@ function ensureGtag() {
 }
 
 function loadGaScript() {
-  const tagId = (GA_ID && GOOGLE_TAG_ID) || (marketingConsent && /^AW-\d+\/[A-Za-z0-9_-]+$/.test(ADS_DESTINATION ?? "") ? ADS_DESTINATION!.split("/")[0] : undefined);
+  const tagId = (analyticsConsent && GA_ID && GOOGLE_TAG_ID) || (marketingConsent ? ADS_TAG_ID : undefined);
   if (!currentContext() || (!analyticsConsent && !marketingConsent) || !tagId || gaScriptInjected || typeof document === "undefined") return;
   gaScriptInjected = true;
   const script = document.createElement("script");
@@ -219,9 +221,9 @@ export function applyConsentPreferences(preferences: TrackingConsentPreferences)
   if (!marketingConsent) lastMarketingView = "";
   if (active && (analyticsConsent || marketingConsent)) loadGaScript();
   configureGaIfAllowed();
-  if (active && marketingConsent && /^AW-\d+\/[A-Za-z0-9_-]+$/.test(ADS_DESTINATION ?? "")) {
+  if (active && marketingConsent && ADS_TAG_ID) {
     if (!adsConfigured && typeof window !== "undefined") {
-      window.gtag?.("config", ADS_DESTINATION!.split("/")[0], { send_page_view: false, ...currentContext(), page_referrer: safeReferrer(document.referrer || ""), allow_ad_personalization_signals: false });
+      window.gtag?.("config", ADS_TAG_ID, { send_page_view: false, ...currentContext(), page_referrer: safeReferrer(document.referrer || ""), allow_ad_personalization_signals: false });
       adsConfigured = true;
     }
   }
@@ -281,7 +283,7 @@ export function trackConversion(type: string, value?: number, receipt?: string):
     form_name: type, event_category: "conversion", journey_stage: "lead", outcome: "accepted",
   });
   // A GA4 G- measurement ID is not a Google Ads conversion destination.
-  if (isLead && marketingConsent && /^AW-\d+\/[A-Za-z0-9_-]+$/.test(ADS_DESTINATION ?? "")) {
+  if (isLead && receipt && marketingConsent && adsConfigured && ADS_DESTINATION) {
     ensureGtag();
     window.gtag?.("event", "conversion", { send_to: ADS_DESTINATION, ...currentContext(), page_referrer: safeReferrer(document.referrer || "") });
   }

@@ -1,8 +1,8 @@
-import { SEO_ROUTE_DEFAULTS } from "@shared/seo-routes";
-import { STATIC_BLOG_SLUGS } from "@shared/blog-slugs";
-import { PUBLIC_INDUSTRIES } from "@shared/public-industries";
-import { LOCATION_HUB_PATHS, LOCATION_DETAIL_PATHS } from "@shared/public-locations";
-import { COMPARE_ENTRIES } from "@shared/compare-content";
+import { SEO_ROUTE_DEFAULTS } from "./seo-routes";
+import { STATIC_BLOG_SLUGS } from "./blog-slugs";
+import { PUBLIC_INDUSTRIES } from "./public-industries";
+import { LOCATION_HUB_PATHS, LOCATION_DETAIL_PATHS } from "./public-locations";
+import { COMPARE_ENTRIES } from "./compare-content";
 
 const PUBLIC_DYNAMIC_PATHS = new Set<string>([...STATIC_BLOG_SLUGS.map(slug => `/blog/${slug}`), ...PUBLIC_INDUSTRIES.map(row => `/industries/${row.slug}`), ...LOCATION_HUB_PATHS, ...LOCATION_DETAIL_PATHS, ...Object.keys(COMPARE_ENTRIES).map(slug => `/compare/${slug}`)]);
 

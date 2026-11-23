@@ -31,9 +31,11 @@ assert.match(imports, /await orchestrateInboundRequest\(\{ requestId: inboundCla
 
 for (const sourceType of ["inbound_message", "inbound_call", "appointment_booked", "chat_message", "chat_booking"]) {
   assert.match(authority, new RegExp(`sourceType: "${sourceType}"[\\s\\S]{0,250}sourceClass: "lifecycle_event"`));
+  if (sourceType === "appointment_booked") continue; // Claimed by the verified booking projection below.
   assert.match(sdr, new RegExp(`claimExplicitGhlOccurrence\\("${sourceType}"`));
 }
 assert.match(sdr, /claimVerifiedProviderEvent/);
+assert.match(read("server/services/ghl-booking-projection.ts"), /claimVerifiedProviderEvent\(\{\s*sourceType: "appointment_booked"/);
 assert.match(authority, /export function providerEventCommandId/);
 assert.match(authority, /occurrenceKey: `ghl:\$\{input\.sourceType\}:\$\{input\.eventId\}`/);
 

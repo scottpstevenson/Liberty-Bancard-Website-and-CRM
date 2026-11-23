@@ -156,4 +156,23 @@ console.log(`LAUNCH_READINESS_CONTRACTS_PASS ${checks}`);
   check(vendor.filter(v => v[0] === 'event').length === revoked, 'Withdrawal immediately suppresses views, conversions and abandonment diagnostics');
   check(vendor.filter(v => v[0] === 'consent').every(v => v[2].ad_user_data === 'denied' && v[2].ad_personalization === 'denied'), 'No measurement preference enables contact-data uploading or personalization');
 }
+{
+  const commands: any[][] = [];
+  const scripts: any[] = [];
+  const browser = { URL, URLSearchParams, console, module: { exports: {} as any }, exports: {},
+    window: { location: { pathname: "/upload-statement", origin: "https://libertybancard.com", hostname: "libertybancard.com", search: "" },
+      gtag: (...args: any[]) => commands.push(args) },
+    document: { cookie: "", referrer: "", head: { appendChild: (script: any) => scripts.push(script) }, createElement: () => ({}), getElementsByTagName: () => [] } };
+  vm.runInNewContext(bundle.outputFiles[0].text, browser);
+  const api = browser.module.exports;
+  api.applyConsentPreferences({ analytics: false, marketing: true });
+  const googleScripts = scripts.filter(script => script.src.includes("/gtag/js?"));
+  check(googleScripts.length === 1 && googleScripts[0].src.endsWith("/gtag/js?id=AW-123456"), "Ads-only consent loads the Ads tag without bootstrapping the GA stream");
+  api.trackConversion("statement_upload");
+  check(!commands.some(c => c[1] === "conversion"), "Ads lead dispatch requires a confirmed occurrence reference");
+  api.trackConversion("statement_upload", undefined, "ads-only-receipt");
+  api.trackConversion("statement_upload", undefined, "ads-only-receipt");
+  check(commands.filter(c => c[0] === "event" && c[1] === "conversion").length === 1
+    && !commands.some(c => c[1] === "generate_lead"), "An Ads-only save sends one conversion and no GA lead");
+}
 console.log(`MEASUREMENT_ROUTE_ACCEPTANCE_PASS total=${checks}`);

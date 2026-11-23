@@ -1,7 +1,7 @@
 /**
  * One bounded tick of the website email lifecycle lane. Everything here is default closed:
- *   1. admission   — evaluates held website intents against the CURRENT lane configuration (a closed lane admits nothing)
- *   2. mailbox     — polls the Gmail mailbox ONLY when an admin has opened the reader (otherwise no provider call is made)
+ *   1. mailbox     — applies new reply evidence when an admin has opened the reader
+ *   2. admission   — evaluates held website intents against the current lane configuration
  *   3. warm sends  — claims only enrollments carrying an active admission marker; every send re-checks pause, stop,
  *                    capacity and contactability inside its own fence
  * Each stage fails independently and reports a typed outcome; a stage error never skips a later stage's own gates.
@@ -36,8 +36,8 @@ export async function runWebsiteEmailTick(
 ): Promise<WebsiteEmailTickResult> {
   const capability = await (deps.capabilityCheck ?? defaultCapabilityCheck)();
   if (!capability.selected || !capability.workerActive) throw new WebsiteEmailCapabilityInactiveError(capability);
-  const admission = await processWebsiteLifecycleIntents().catch((error) => ({ error: errorName(error) }));
   const mailbox = await pollMailboxOnce().catch((error) => ({ error: errorName(error) }));
+  const admission = await processWebsiteLifecycleIntents().catch((error) => ({ error: errorName(error) }));
   const warm = await processWebsiteWarmEnrollments().catch((error) => ({ error: errorName(error) }));
   return { admission, mailbox, warm };
 }
