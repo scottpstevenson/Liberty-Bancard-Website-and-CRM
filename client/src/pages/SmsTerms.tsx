@@ -34,8 +34,9 @@ export default function SmsTerms() {
               </p>
               <ul className="list-disc pl-6 space-y-1">
                 <li>Consent is not a condition of purchase or service.</li>
+                <li>You must be at least 18 years old to participate, as described in our <Link href="/terms" className="underline">Terms of Service</Link>.</li>
                 <li>You may opt in by submitting a web form with the SMS consent checkbox, texting a keyword (e.g., START) to our designated number, or verbally consenting during a phone call (recorded for compliance).</li>
-                <li>Your consent covers informational messages (account updates, appointment reminders, service notifications) and promotional messages (offers, savings opportunities, program updates).</li>
+                <li>Your consent applies to the messages described at the time you opt in. At Sales Meeting booking, appointment confirmation and marketing texts have separate optional checkboxes.</li>
               </ul>
             </section>
 

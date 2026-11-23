@@ -95,6 +95,9 @@ export default function PrivacyPolicy() {
                 <li>Carriers are not liable for delayed or undelivered messages.</li>
                 <li>For help, reply HELP or contact <a href="mailto:support@libertybancard.com" className="underline">support@libertybancard.com</a>.</li>
               </ul>
+              <p className="mt-3">
+                We do not share mobile information with third parties or affiliates for marketing or promotional purposes. Text messaging opt-in data and consent are excluded from the data-sharing practices below. Our messaging service providers may process that information on our behalf to deliver and support the Liberty Bancard SMS program.
+              </p>
             </section>
 
             <section data-testid="section-privacy-share">
