@@ -767,8 +767,10 @@ try {
     end: "2026-11-02",
     asOf: "2026-11-17T00:00:00Z",
   });
-  // Fixture ingestion uses actual current clock, so pin a current cutoff for this synthetic historical occurrence set.
-  q.asOf = new Date().toISOString();
+  // PostgreSQL records ingestion to the microsecond. A millisecond cutoff can exclude a row inserted immediately before it.
+  q.asOf = (await one(`
+    SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS as_of
+  `)).as_of;
   const report = await readConversionFunnel(q);
   ok(
     report.stages.every((s) => s.count === 1),

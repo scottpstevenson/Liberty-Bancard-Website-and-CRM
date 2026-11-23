@@ -375,6 +375,7 @@ export default function Support() {
                       <Button
                         type="submit"
                         className="public-form-action w-full"
+                        style={{ minHeight: "var(--public-action-height, 3.25rem)" }}
                         disabled={intake.submitting}
                         data-testid="button-support-submit"
                       >

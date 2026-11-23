@@ -205,6 +205,7 @@ export const CERTIFICATION_FIXTURE_SUITES: Suite[] = [
   {name:"Stage 5 application contract (complete submission required, no effects on refusal)",script:"scripts/certification/test-stage5-application-contract.ts",timeoutSecs:600,requiresDisposableTestDatabase:true},
   {name:"Stage 5 underwriting required evidence (missing/invalid evidence never approves)",script:"scripts/certification/test-stage5-underwriting-evidence.ts",timeoutSecs:600,requiresDisposableTestDatabase:true},
   {name:"Stage 4D bad-source and identity exclusion journey (> 500 fixtures, real authorities)",script:"scripts/certification/test-stage4d-bad-source-journey.ts",timeoutSecs:600,requiresDisposableTestDatabase:true},
+  {name:"GHL signed booking and ordered conversion journey",script:"scripts/certification/test-ghl-booking-projection.ts",timeoutSecs:600,requiresDisposableTestDatabase:true},
   {name:"Stage 4D signed reply / STOP / bounce journey through both webhook entrances (replay, concurrency, failed commit and retry)",script:"scripts/certification/test-stage4d-signed-reply-journey.ts",timeoutSecs:600,requiresDisposableTestDatabase:true},
   {name:"Stage 4D five-vertical by three-county matrix (classifier, geography, package plan, selector; pure)",script:"scripts/test-stage4d-vertical-county-matrix.ts",timeoutSecs:300},
   {name:"Message copy convergence and token contract",script:"scripts/certification/test-message-copy-convergence.ts",

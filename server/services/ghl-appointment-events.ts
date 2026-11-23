@@ -21,7 +21,7 @@
 import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
-import { resolveAccountBooking } from "./ghl-calendar-purpose";
+import { resolveAccountBooking, resolveSalesCalendar } from "./ghl-calendar-purpose";
 import { runReceiptTxStep, currentReceiptId, type DbTx } from "./ghl-webhook-effects";
 
 export type AppointmentEventKind = "booked" | "updated" | "rescheduled" | "showed" | "canceled" | "no_show";
@@ -63,7 +63,8 @@ export function configuredAppointmentCalendarIds(env: NodeJS.ProcessEnv = proces
   // The validated account-management calendar (from AM_CALENDAR_URL) is a trusted origin: its events are recorded as
   // account-purpose history. An invalid or missing AM_CALENDAR_URL adds nothing.
   const account = resolveAccountBooking(env);
-  return [env.GHL_APPOINTMENT_CALENDAR_ID, env.GHL_DEFAULT_CALENDAR_ID, env.GHL_CALENDAR_ID, account.available ? account.calendarId : undefined]
+  const sales = resolveSalesCalendar(env);
+  return [...new Set([env.GHL_APPOINTMENT_CALENDAR_ID, env.GHL_DEFAULT_CALENDAR_ID, env.GHL_CALENDAR_ID, account.available ? account.calendarId : undefined, sales.available ? sales.calendarId : undefined])]
     .filter((v): v is string => typeof v === "string" && v.length > 0);
 }
 
@@ -73,7 +74,7 @@ interface NormalizedAppointmentEvent {
 }
 
 /** Validation shared by the pre-handler decision and the recorder. Nothing here defaults a missing fact. */
-function normalizeAppointmentEvent(input: AppointmentEventInput): NormalizedAppointmentEvent | { rejected: AppointmentRejectReason } {
+export function normalizeAppointmentEvent(input: AppointmentEventInput): NormalizedAppointmentEvent | { rejected: AppointmentRejectReason } {
   const p = input.payload;
   const appointment = (p.appointment && typeof p.appointment === "object" ? p.appointment : {}) as Record<string, unknown>;
   const appointmentId = text(p.appointmentId) ?? text(appointment.id) ?? text(p.id);

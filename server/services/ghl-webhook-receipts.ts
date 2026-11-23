@@ -201,9 +201,9 @@ type RawRequest = Request & { rawBody?: Buffer };
  * Express middleware mounted after signature verification. The acknowledgement is held until the
  * receipt outcome is durable: res.end is wrapped so the status code decides applied/failed first.
  */
-export function ghlWebhookReceiptMiddleware() {
+export function ghlWebhookReceiptMiddleware(fixedEventType?: string) {
   return async (req: Request, res: Response, next: NextFunction) => {
-    const eventType = req.path.replace(/^\//, "").replace(/\//g, "-") || "unknown";
+    const eventType = fixedEventType ?? (req.path.replace(/^\//, "").replace(/\//g, "-") || "unknown");
     let claim: ReceiptClaim;
     try {
       const occurrence = ghlWebhookOccurrence(eventType, req.body);

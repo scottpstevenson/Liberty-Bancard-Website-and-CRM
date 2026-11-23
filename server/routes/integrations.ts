@@ -15,6 +15,7 @@ import dns from "node:dns/promises";
 import net from "node:net";
 import { serverError, safeMessage } from "../utils/server-error";
 import { authorizeContactAccess } from "../services/crm-object-access";
+import { handleMarketplaceBooking } from "./ghl-marketplace-booking";
 
 export function registerIntegrationsRoutes(app: Express) {
   const getAuthorizedRecipient = async (req: any, res: any, rawContactId: unknown, respond = true) => {
@@ -240,7 +241,7 @@ export function registerIntegrationsRoutes(app: Express) {
     res.json(logs);
   });
 
-  app.post("/api/webhooks/ghl", webhookRateLimit, async (req, res) => {
+  app.post("/api/webhooks/ghl", webhookRateLimit, handleMarketplaceBooking, async (req, res) => {
     try {
       const rawBody = req.rawBody instanceof Buffer ? req.rawBody.toString("utf8") : JSON.stringify(req.body);
 

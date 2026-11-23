@@ -3,7 +3,7 @@ import {z} from 'zod';
 import {pool} from '../db';
 import {requireRole} from '../replit_integrations/auth';
 import {serverError} from '../utils/server-error';
-import {intakeKinds,canonicalIntakeIdentity,readIntakeRecord,previewIntakeCorrespondence,queueIntakeCorrespondence,intakeAutomationStatus,enableIntakeAutomation,createIntakeFollowupTask} from '../services/intake-center';
+import {intakeKinds,canonicalIntakeIdentity,readIntakeRecord,listRecentIntakeTriage,previewIntakeCorrespondence,queueIntakeCorrespondence,intakeAutomationStatus,enableIntakeAutomation,createIntakeFollowupTask} from '../services/intake-center';
 const route=z.object({kind:z.enum(intakeKinds),id:z.string().max(40)});
 const content=z.object({subject:z.string().trim().min(1).max(180).refine(v=>!/[\r\n]/.test(v)),body:z.string().trim().min(1).max(8000)}).strict();
 export function registerIntakeCenterRoutes(app:Express){
@@ -14,6 +14,12 @@ export function registerIntakeCenterRoutes(app:Express){
    const row=(await pool.query("SELECT source_class FROM inbound_requests WHERE id::text=$1",[req.params.id])).rows[0];
    if(row?.source_class==='privacy_request')return res.status(403).json({message:'Privacy-request correspondence is available only to administrators.'});
   }next();}catch(e){serverError(res,e);}
+ });
+ app.get('/api/intake-center/triage/:kind',requireRole('admin','manager'),async(req,res)=>{
+  const kind=z.enum(intakeKinds).safeParse(req.params.kind);
+  if(!kind.success)return res.status(400).json({message:'Invalid intake category.'});
+  try {res.json(await listRecentIntakeTriage(kind.data,(req.user as any).role==='admin'));}
+  catch(e){serverError(res,e);}
  });
  app.get('/api/intake-center/status',requireRole('admin','manager'),async(_req,res)=>{try{res.json(await intakeAutomationStatus());}catch(e){serverError(res,e);}});
  app.post('/api/intake-center/enable',requireRole('admin'),async(req,res)=>{try{z.object({enable:z.literal(true)}).strict().parse(req.body);res.json(await enableIntakeAutomation((req.user as any).id));}catch(e){if(e instanceof z.ZodError)return res.status(400).json({message:'Confirm enabling new intake receipts and follow-up.'});serverError(res,e);}});

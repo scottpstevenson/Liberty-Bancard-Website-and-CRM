@@ -25,6 +25,53 @@ export async function readIntakeSource(kind:IntakeKind,id:string):Promise<Intake
  if (["forms","applications","introductions"].includes(kind) ? !/^[0-9a-f-]{36}$/i.test(id) : (!/^[1-9]\d{0,9}$/.test(id)||Number(id)>2147483647)) return null;
  return (await pool.query(`SELECT * FROM (${definitions[kind]}) s WHERE id=$1`,[id])).rows[0] ?? null;
 }
+const staffAlertKinds = {
+ forms: "inbound", merchants: "merchant_application", applications: "application",
+ introductions: "introduction", referrals: "referral", merchant_referrals: "merchant_referral",
+} as const satisfies Record<IntakeKind, string>;
+
+/** A bounded triage view with the same role and source boundaries as the record drawer. */
+export async function listRecentIntakeTriage(kind: IntakeKind, includePrivacy: boolean) {
+ const filter = kind === "forms"
+  ? "WHERE source_class <> 'partner_application_request' AND ($3 OR source_class <> 'privacy_request')"
+  : kind === "merchants" ? "WHERE submitted" : "";
+ const { rows } = await pool.query(`
+  WITH recent AS (
+   SELECT id, name, status, received_at, request_id FROM (${definitions[kind]}) source
+   ${filter} ORDER BY received_at DESC NULLS LAST, id DESC LIMIT 8
+  )
+  SELECT r.id, r.name, r.status, r.received_at,
+    CASE WHEN review.id IS NOT NULL THEN reviewer.email
+         ELSE COALESCE(t.canonical_assignee, t.assigned_to, request.assigned_to) END AS owner,
+    CASE WHEN review.id IS NOT NULL THEN review.metadata->>'reviewDueAt'
+         ELSE COALESCE(request.sla_due_at, t.due_date AT TIME ZONE 'UTC')::text END AS due_at,
+    CASE WHEN review.metadata->>'reviewDueAt' IS NOT NULL THEN
+           r.status IN ('pending_review', 'needs_info', 'review_required', 'pending', 'processing')
+         ELSE COALESCE(t.authority_state IN ('open', 'in_progress')
+              AND t.status NOT IN ('completed', 'cancelled', 'canceled'), false) END AS deadline_open,
+    ack.state AS receipt_state, a.state AS staff_alert_state
+  FROM recent r
+  LEFT JOIN intake_operations op ON op.source_kind=$1 AND op.source_id=r.id
+  LEFT JOIN inbound_requests request ON request.id=COALESCE(r.request_id::uuid,op.request_id)
+  LEFT JOIN inbound_request_work_links w ON w.request_id=request.id AND w.work_type='task'
+  LEFT JOIN tasks t ON t.id=COALESCE(op.task_id,w.task_id) AND t.deleted_at IS NULL
+  LEFT JOIN LATERAL (
+   SELECT id, metadata FROM notifications
+   WHERE inbound_request_id=request.id
+     AND metadata->>'eventType' IN ('partner_application_received', 'privacy_request_received')
+   ORDER BY id LIMIT 1
+  ) review ON true
+  LEFT JOIN users reviewer ON reviewer.id=review.metadata->>'reviewOwnerUserId'
+  LEFT JOIN LATERAL (
+   SELECT state FROM inbound_acknowledgements WHERE request_id=request.id
+   ORDER BY updated_at DESC, id DESC LIMIT 1
+  ) ack ON true
+  LEFT JOIN team_intake_alerts a ON a.event_key=$2 || ':' || r.id
+  ORDER BY r.received_at DESC NULLS LAST, r.id DESC
+ `, [kind, staffAlertKinds[kind], ...(kind === "forms" ? [includePrivacy] : [])]);
+ return rows;
+}
+
 export function intakeRecordHref(kind:IntakeKind,id:string) {
  if(kind==='forms')return `/dashboard/intake?tab=forms&ref=${id.replaceAll('-','').slice(0,8)}`;
  return `/dashboard/intake?tab=${kind==='merchant_referrals'?'referrals':kind}${kind==='applications'?'&application='+id:kind==='introductions'?'&introduction='+id:''}`;
@@ -71,8 +118,7 @@ async function ensureOperations(kind:IntakeKind,source:IntakeSource) {
  if(!source.request_id)await orchestrateInboundRequest({requestId,submittedEmail:source.email,notificationId});
  await db.transaction(async tx=>{
   // Existing application/introduction/referral alerts already have a unique owner; enqueue again safely, never duplicate.
-  const alertKind=kind==='forms'?'inbound':kind==='merchants'?'merchant_application':kind==='applications'?'application':kind==='introductions'?'introduction':kind==='merchant_referrals'?'merchant_referral':'referral';
-  await enqueueTeamIntakeAlert(tx,alertKind,source.id);
+  await enqueueTeamIntakeAlert(tx,staffAlertKinds[kind],source.id);
   await tx.execute(sql`UPDATE intake_operations SET request_id=${requestId}::uuid,task_id=${task.id},notification_id=${notificationId},ready=true,updated_at=now() WHERE source_kind=${kind} AND source_id=${source.id}`);
  });
 }
@@ -96,7 +142,7 @@ export async function readIntakeRecord(kind:IntakeKind,id:string) {
  const tasks=operation?.task_id?(await pool.query(`SELECT id,title,status,due_date,assigned_to FROM tasks WHERE id=$1`,[operation.task_id])).rows:requestId?(await pool.query(`SELECT t.id,t.title,t.status,t.due_date,t.assigned_to FROM tasks t JOIN inbound_request_work_links w ON w.task_id=t.id WHERE w.request_id=$1`,[requestId])).rows:[];
  const receipts=requestId?(await pool.query(`SELECT state,blocked_reason,attempt_count,updated_at,subject,html_body,text_body FROM inbound_acknowledgements WHERE request_id=$1`,[requestId])).rows:[];
  const notifications=requestId?(await pool.query(`SELECT id,title,created_at FROM notifications WHERE inbound_request_id=$1 ORDER BY id DESC LIMIT 20`,[requestId])).rows:operation?.notification_id?(await pool.query(`SELECT id,title,created_at FROM notifications WHERE id=$1`,[operation.notification_id])).rows:[];
- const alerts=(await pool.query(`SELECT state,attempt_count,last_error,created_at,updated_at FROM team_intake_alerts WHERE source_kind=$1 AND source_id=$2`,[kind==='forms'?'inbound':kind==='merchants'?'merchant_application':kind==='applications'?'application':kind==='introductions'?'introduction':kind==='merchant_referrals'?'merchant_referral':'referral',id])).rows;
+ const alerts=(await pool.query(`SELECT state,attempt_count,last_error,created_at,updated_at FROM team_intake_alerts WHERE source_kind=$1 AND source_id=$2`,[staffAlertKinds[kind],id])).rows;
  const correspondence=(await pool.query(`SELECT r.id,a.state,a.blocked_reason,a.subject,a.html_body,a.text_body,a.updated_at FROM inbound_requests r JOIN inbound_acknowledgements a ON a.request_id=r.id WHERE r.caller_scope=$1 AND r.source_type='intake_followup' ORDER BY r.created_at DESC LIMIT 20`,[`intake:${kind}:${id}`])).rows;
  return {source,operation,tasks,notifications,receipts,alerts,correspondence,href:intakeRecordHref(kind,id),recipientMeaning:['introductions','referrals','merchant_referrals'].includes(kind)?'Referrer who submitted the business':'Applicant / requester',nextSteps:kind==='merchants'?['Review the application and supporting documents.','Use the merchant review controls to request information or record an underwriting decision.']:kind==='applications'?['Review the application, assignment and consent evidence.','Request information or record an application decision using the existing review controls.']:kind==='introductions'?['Check duplicate or competing-referrer evidence.','Record a review decision before contacting the referred business.']:['Assign or complete the follow-up task.','Review the record and send a relevant response when needed.']};
 }

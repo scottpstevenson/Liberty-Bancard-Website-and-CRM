@@ -408,8 +408,8 @@ export async function linkInboundRequest(requestId: string, refs: {
    */
   submittedEmail?: string | null;
   lifecycleState?: "claimed" | "processing" | "accepted" | "completed" | "failed" | "cancelled" | "review_required";
-}): Promise<InboundRequest | null> {
-  const [updated] = await db.update(inboundRequests).set({
+}, executor: InboundTx | typeof db = db): Promise<InboundRequest | null> {
+  const [updated] = await executor.update(inboundRequests).set({
     contactId: refs.contactId,
     // First link snapshots the submitted mailbox; COALESCE keeps it immutable on every later link.
     ...(refs.contactId
@@ -759,6 +759,29 @@ async function completeInternalEffects(requestId: string, effectKeys: readonly s
     if (effect.state === "sent") completed.add(effect.effectKey);
   }
   if (completed.size !== effectKeys.length) throw new Error("INBOUND_INTERNAL_EFFECT_TRANSITION_FAILED");
+}
+
+/** Settle the internal booking projection inside the authenticated appointment receipt transaction. */
+export async function settleVerifiedBookingProjection(
+  tx: InboundTx,
+  requestId: string,
+  refs: { contactId: number | null; dealId: number | null },
+  reviewReason: string | null,
+) {
+  const [request] = await tx.select().from(inboundRequests).where(eq(inboundRequests.id, requestId)).for("update");
+  if (request?.sourceCategory !== "ghl_webhook" || request.sourceType !== "appointment_booked") {
+    throw new Error("INBOUND_BOOKING_PROJECTION_SCOPE");
+  }
+  for (const key of ["contactId", "dealId"] as const) {
+    if (request[key] !== null && request[key] !== refs[key]) throw new Error("INBOUND_REQUEST_LINK_CHANGED");
+  }
+  await linkInboundRequest(requestId, refs, tx);
+  if (!reviewReason) await completeInternalEffects(requestId, ["projection"], tx);
+  await tx.update(inboundRequests).set({
+    lifecycleState: reviewReason ? "review_required" : "accepted",
+    terminalReason: reviewReason,
+    updatedAt: new Date(),
+  }).where(eq(inboundRequests.id, requestId));
 }
 
 /**

@@ -16,7 +16,8 @@ import { validateWebhookSignature, validateWebhookRequest, getSdrGhlConfig, isSd
 import { handleContactUpdated, handleMessageReceived, handleCallOutcome, handleAppointmentBooked, handleAppointmentCanceled, handleOptOut, handleEmailBounce } from "../services/sdr/webhook-handlers";
 import { handleAppointmentShowed, handleAppointmentNoShow, handleAppointmentTimeChange } from "../services/sdr/scheduling";
 import { ghlWebhookReceiptMiddleware } from "../services/ghl-webhook-receipts";
-import { acceptGhlAppointmentTransition, configuredAppointmentCalendarIds, normalizeAppointmentStatus, type AppointmentEventKind } from "../services/ghl-appointment-events";
+import { acceptGhlAppointmentTransition, configuredAppointmentCalendarIds, normalizeAppointmentEvent, normalizeAppointmentStatus, type AppointmentEventKind } from "../services/ghl-appointment-events";
+import { projectVerifiedGhlBooking } from "../services/ghl-booking-projection";
 import { runReceiptStep, runReceiptTxStep } from "../services/ghl-webhook-effects";
 import { handleConversationCreated, handleChatMessage, handleSmsThread, handleEmailThread, handleChatBooking } from "../services/sdr/chat-handlers";
 import { parse } from "csv-parse/sync";
@@ -818,17 +819,21 @@ export function registerSdrRoutes(app: Express) {
 
   app.post("/api/webhooks/ghl/appointment-booked", async (req, res) => {
     try {
-      const signature = req.headers["x-ghl-signature"] as string || "";
-      if (!validateWebhookSignature(getSdrWebhookRawBody(req), signature)) {
-        return res.status(401).json({ message: "Invalid webhook signature" });
-      }
-
       const payload = req.body as Record<string, unknown>;
+      // The shared verifier has authenticated the complete headers and raw body before claiming a receipt.
       const gate = await gateAppointmentLifecycle("booked", payload, res);
       if (!gate) return;
-      const occurrence = await claimExplicitGhlOccurrence("appointment_booked", payload, payload.appointmentId ?? payload.id ?? payload.eventId);
+      const event = normalizeAppointmentEvent({ kind: "booked", payload });
+      if ("rejected" in event || !event.contactId) throw new Error("VERIFIED_PROVIDER_EVENT_ID_REQUIRED");
+      await projectVerifiedGhlBooking({
+        appointmentId: event.appointmentId,
+        contactId: event.contactId,
+        calendarId: event.calendarId,
+        locationId: event.locationId,
+        eventAt: event.eventAt.toISOString(),
+        ...(typeof payload.opportunityId === "string" && payload.opportunityId ? { opportunityId: payload.opportunityId } : {}),
+      }, payload);
       await handleAppointmentBooked(payload);
-      await runReceiptStep("booked:link_inbound_request", () => linkExplicitGhlOccurrence(occurrence.id, payload));
       res.json({ received: true });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);

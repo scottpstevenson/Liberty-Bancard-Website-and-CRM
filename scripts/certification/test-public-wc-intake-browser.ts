@@ -216,6 +216,7 @@ try {
   // ═══ Layout matrix: every public form at every target width ═════════════════════════════════
   await step("Layout", async () => {
     const pages: Array<[string, string, string]> = [
+      ["Terminal landing page", "/free-smart-terminal", "form-terminal-inquiry"],
       ["Terminal inquiry", "/get-started?offer=free-terminal", "form-terminal-inquiry"],
       ["General inquiry", "/about-contact", "form-general-inquiry"],
       ["Support", "/support", "form-support"],
@@ -373,6 +374,7 @@ try {
   const controlHeights = (formId: string) => b!.evaluate(`(()=>{const f=document.querySelector(${JSON.stringify(tid(formId))});const visible=(e)=>{const r=e.getBoundingClientRect();return e.getClientRects().length>0&&r.width>40&&r.height>10&&!e.closest('[aria-hidden="true"]')};const name=(e)=>e.getAttribute('data-testid')||e.id||e.getAttribute('name')||e.tagName;const pick=(sel)=>[...f.querySelectorAll(sel)].filter(visible).map(e=>({n:name(e),h:Math.round(e.getBoundingClientRect().height*10)/10}));return {fields:pick(${JSON.stringify(FIELD_SELECTOR)}),actions:pick('button[type="submit"]')}})()`) as Promise<{ fields: Array<{ n: string; h: number }>; actions: Array<{ n: string; h: number }> }>;
   const reachable = (formId: string, selector: string) => b!.evaluate(`(()=>{const f=document.querySelector(${JSON.stringify(tid(formId))});const e=f&&[...f.querySelectorAll(${JSON.stringify(selector)})].find(x=>x.getClientRects().length>0);if(!e)return 'missing';e.scrollIntoView({block:'center',behavior:'instant'});const r=e.getBoundingClientRect();const bad=[0.1,0.5,0.9].filter(p=>{const hit=document.elementFromPoint(r.left+r.width*p,r.top+r.height/2);return !hit||!(hit===e||e.contains(hit)||(!!hit.closest('label')&&hit.closest('label')===e.closest('label')))});return bad.length?'covered':'ok'})()`) as Promise<string>;
   const sizingPages: Array<[string, string, string, boolean]> = [
+    ["Terminal landing page", "/free-smart-terminal", "form-terminal-inquiry", true],
     ["Terminal inquiry", "/get-started?offer=free-terminal", "form-terminal-inquiry", true],
     ["General inquiry", "/about-contact", "form-general-inquiry", true],
     ["Support", "/support", "form-support", false],
@@ -525,7 +527,8 @@ try {
   // Evidence is read from outside the page code: the database (occurrences), the tab's own record of every public POST it sent, and the
   // conversion events handed to gtag (a no-op recorder installed before the app loads, so no analytics provider is contacted).
   const wcPosts = async () => ((await b!.evaluate(`JSON.parse(sessionStorage.getItem('__wc_posts')||'[]')`)) as string[]).filter((p) => /\/api\/public\/(get-started|support|callback)$/.test(p)).length;
-  const wcLeads = async (formName: string) => ((await b!.evaluate(`JSON.parse(sessionStorage.getItem('__wc_events')||'[]')`)) as string[][]).filter((e) => e[1] === "generate_lead" && e[2] === formName).length;
+  const wcFormEvents = async (formName: string) => ((await b!.evaluate(`JSON.parse(sessionStorage.getItem('__wc_events')||'[]')`)) as string[][])
+    .filter((e) => e[0] === "event" && ["generate_lead", "form_submission"].includes(e[1]) && e[2] === formName).length;
   const resetCounters = () => b!.evaluate(`sessionStorage.removeItem('__wc_posts');sessionStorage.removeItem('__wc_events')`);
   const rawStored = (form: string) => b!.evaluate(`sessionStorage.getItem('lb:public-intake:${form}')||''`) as Promise<string>;
   type Retained = { key: string; receipt: string | null; state: string; pendingReview?: boolean; tracked?: boolean; thankYouTracked?: boolean };
@@ -560,7 +563,7 @@ try {
       const first = (await requestsFor(email))[0];
       const ref1 = await shown();
       const key1 = (await retained("general_inquiry"))!.key;
-      check(ref1 === shortRef(first.id) && await wcPosts() === 1 && await wcLeads("general_inquiry_submission") === 1, "General inquiry: one POST, one stored occurrence and one conversion event for the first confirmed save");
+      check(ref1 === shortRef(first.id) && await wcPosts() === 1 && await wcFormEvents("general_inquiry_submission") === 0, "General inquiry: one POST, one stored occurrence and no analytics event with consent denied");
       const kept = await retained("general_inquiry");
       check(kept?.state === "saved" && kept.receipt === first.id && kept.tracked === true && typeof kept.pendingReview === "boolean", "General inquiry: the confirmed save is retained in the tab (state saved, original receipt, review state, conversion claimed)");
       check(onlyIdentity(await rawStored("general_inquiry"), [email, business, "Rae Restore", note]), "General inquiry: the retained record holds identity and state only (no name, email, business or note)");
@@ -568,7 +571,7 @@ try {
       await reloadPage();
       await until(async () => await present(tid("inquiry-success")), "saved general inquiry restored after reload");
       check(await shown() === ref1 && !(await present(tid("button-inquiry-submit"))), "General inquiry: after a reload the ORIGINAL reference is shown and the form is not");
-      check(await wcPosts() === 1 && await wcLeads("general_inquiry_submission") === 1 && (await requestsFor(email)).length === 1 && (await retained("general_inquiry"))?.key === key1, "General inquiry: the reload sent no new POST, minted no new key, recorded no second conversion and created no second occurrence");
+      check(await wcPosts() === 1 && await wcFormEvents("general_inquiry_submission") === 0 && (await requestsFor(email)).length === 1 && (await retained("general_inquiry"))?.key === key1, "General inquiry: the reload sent no new POST, minted no new key, recorded no second conversion and created no second occurrence");
 
       await b!.navigate("/support");
       await until(async () => await present(tid("form-support")), "support page");
@@ -579,7 +582,7 @@ try {
       await until(async () => await present(tid("form-support")), "Forward to support");
       await b!.evaluate("history.back()");
       await until(async () => await present(tid("inquiry-success")), "Back again restores the saved general inquiry");
-      check(await shown() === ref1 && await wcPosts() === 1 && await wcLeads("general_inquiry_submission") === 1 && (await requestsFor(email)).length === 1 && (await retained("general_inquiry"))?.key === key1,
+      check(await shown() === ref1 && await wcPosts() === 1 && await wcFormEvents("general_inquiry_submission") === 0 && (await requestsFor(email)).length === 1 && (await retained("general_inquiry"))?.key === key1,
         "General inquiry: Back, Forward and Back again keep the same reference, key and single occurrence, with no new POST or conversion");
 
       // The deliberate choice: the same details become exactly one NEW request.
@@ -590,8 +593,8 @@ try {
       const rows = await requestsFor(email);
       const second = rows[1];
       const key2 = (await retained("general_inquiry"))?.key;
-      check(rows.length === 2 && second && second.id !== first.id && await shown() === shortRef(second.id) && key2 !== key1 && await wcPosts() === 2 && await wcLeads("general_inquiry_submission") === 2,
-        "General inquiry: a deliberate new request is exactly one new occurrence under a new key with a new reference, one more POST and one more conversion");
+      check(rows.length === 2 && second && second.id !== first.id && await shown() === shortRef(second.id) && key2 !== key1 && await wcPosts() === 2 && await wcFormEvents("general_inquiry_submission") === 0,
+        "General inquiry: a deliberate new request is exactly one new occurrence under a new key with a new reference, one more POST and analytics stays off");
       check(await count(`SELECT count(*) n FROM notifications WHERE inbound_request_id IN ($1,$2)`, [first.id, second.id]) === 2, "General inquiry: each of the two occurrences has exactly one internal notification");
     } finally { asVisitor(null); }
   });
@@ -614,17 +617,19 @@ try {
         await until(async () => await present(tid("terminal-success")), "terminal inquiry accepted", 120);
       };
       const shown = async () => (await text(tid("terminal-success-reference"))).match(/[0-9A-F]{8}/)?.[0] ?? "";
-      await freshForm("/get-started?offer=free-terminal", "form-terminal-inquiry");
+      await freshForm("/free-smart-terminal", "form-terminal-inquiry");
       await resetCounters();
       await fill();
       const first = (await requestsFor(email))[0];
       const ref1 = await shown();
       const key1 = (await retained("equipment_inquiry"))!.key;
-      check(ref1 === shortRef(first.id) && await wcPosts() === 1 && await wcLeads("terminal_inquiry_submission") === 1, "Equipment inquiry: one POST, one stored occurrence and one conversion event for the first confirmed save");
+      check(ref1 === shortRef(first.id) && await wcPosts() === 1 && (await requestsFor(email)).length === 1,
+        "Inline equipment inquiry saves one CRM occurrence and returns its reference");
+      check(await wcFormEvents("terminal_inquiry_submission") === 0, "Inline equipment inquiry does not record a lead event with analytics consent denied");
       check((await retained("equipment_inquiry"))?.state === "saved" && onlyIdentity(await rawStored("equipment_inquiry"), [email, business, "Tess Restore"]), "Equipment inquiry: the confirmed save is retained as identity and state only");
       await reloadPage();
       await until(async () => await present(tid("terminal-success")), "saved equipment inquiry restored after reload");
-      check(await shown() === ref1 && await wcPosts() === 1 && await wcLeads("terminal_inquiry_submission") === 1 && (await requestsFor(email)).length === 1 && (await retained("equipment_inquiry"))?.key === key1,
+      check(await shown() === ref1 && await wcPosts() === 1 && await wcFormEvents("terminal_inquiry_submission") === 0 && (await requestsFor(email)).length === 1 && (await retained("equipment_inquiry"))?.key === key1,
         "Equipment inquiry: after a reload the original reference is shown with no new POST, key, conversion or occurrence");
       await b!.navigate("/about-contact");
       await until(async () => await present(tid("form-general-inquiry")), "general page");
@@ -635,8 +640,8 @@ try {
       await until(async () => await present(tid("form-terminal-inquiry")), "empty equipment form");
       await fill();
       const rows = await requestsFor(email);
-      check(rows.length === 2 && rows[1].id !== first.id && await shown() === shortRef(rows[1].id) && (await retained("equipment_inquiry"))?.key !== key1 && await wcPosts() === 2 && await wcLeads("terminal_inquiry_submission") === 2,
-        "Equipment inquiry: a deliberate new request is exactly one new occurrence under a new key, with one more POST and one more conversion");
+      check(rows.length === 2 && rows[1].id !== first.id && await shown() === shortRef(rows[1].id) && (await retained("equipment_inquiry"))?.key !== key1 && await wcPosts() === 2 && await wcFormEvents("terminal_inquiry_submission") === 0,
+        "Equipment inquiry: a deliberate new request is exactly one new occurrence under a new key, with one more POST and analytics still off");
     } finally { asVisitor(null); }
   });
 
@@ -669,15 +674,15 @@ try {
       const ref1 = await thanksRef();
       const contact = await contactByEmail(email);
       const key1 = (await retained("support"))!.key;
-      check(ref1 === shortRef(first.id) && await wcPosts() === 1 && await wcLeads("support_request") === 1 && await count(`SELECT count(*) n FROM tickets WHERE contact_id=$1`, [contact.id]) === 1,
-        "Support: one POST, one occurrence, one ticket and one conversion event for the first confirmed save");
+      check(ref1 === shortRef(first.id) && await wcPosts() === 1 && await wcFormEvents("support_request") === 0 && await count(`SELECT count(*) n FROM tickets WHERE contact_id=$1`, [contact.id]) === 1,
+        "Support: one POST, one occurrence, one ticket and no analytics event with consent denied");
       const kept = await retained("support");
       check(kept?.state === "saved" && kept.receipt === first.id && kept.tracked === true && kept.thankYouTracked === true && onlyIdentity(await rawStored("support"), [email, message, "Sue Restore"]),
         "Support: the retained save records that the confirmation view was counted, and holds identity and state only");
 
       await reloadPage();
       await until(async () => await present(tid("text-thanks-support-reference")), "confirmation page after reload");
-      check(await thanksRef() === ref1 && await wcPosts() === 1 && await wcLeads("support_request") === 1 && (await supportRequests()).length === 1 && (await retained("support"))?.key === key1,
+      check(await thanksRef() === ref1 && await wcPosts() === 1 && await wcFormEvents("support_request") === 0 && (await supportRequests()).length === 1 && (await retained("support"))?.key === key1,
         "Support: reloading the confirmation page shows the same reference with no new POST, key, conversion or occurrence");
       await b!.evaluate("history.back()");
       await until(async () => await present(tid("support-saved")), "Back restores the saved support request", 120);
@@ -685,7 +690,7 @@ try {
         "Support: Back to the form shows the saved request and its original reference instead of an empty form");
       await b!.evaluate("history.forward()");
       await until(async () => (await b!.evaluate("location.pathname")) === "/thanks-support" && await present(tid("text-thanks-support-reference")), "Forward to the confirmation page");
-      check(await thanksRef() === ref1 && await wcPosts() === 1 && await wcLeads("support_request") === 1, "Support: Forward shows the same confirmation and adds no conversion");
+      check(await thanksRef() === ref1 && await wcPosts() === 1 && await wcFormEvents("support_request") === 0, "Support: Forward shows the same confirmation and adds no conversion");
       await b!.evaluate("history.back()");
       await until(async () => await present(tid("support-saved")), "Back again restores the saved support request", 120);
       await b!.click(tid("support-start-another"));
@@ -693,8 +698,8 @@ try {
       check(await retained("support") === null && (await supportRequests()).length === 1, "Support: 'Send another' shows an empty form and sends nothing by itself");
       await fill();
       const rows = await supportRequests();
-      check(rows.length === 2 && rows[1].id !== first.id && await thanksRef() === shortRef(rows[1].id) && (await retained("support"))?.key !== key1 && await wcPosts() === 2 && await wcLeads("support_request") === 2
-        && await count(`SELECT count(*) n FROM tickets WHERE contact_id=$1`, [contact.id]) === 2, "Support: a deliberate new request is exactly one new occurrence and ticket under a new key, with one more POST and one more conversion");
+      check(rows.length === 2 && rows[1].id !== first.id && await thanksRef() === shortRef(rows[1].id) && (await retained("support"))?.key !== key1 && await wcPosts() === 2 && await wcFormEvents("support_request") === 0
+        && await count(`SELECT count(*) n FROM tickets WHERE contact_id=$1`, [contact.id]) === 2, "Support: a deliberate new request is exactly one new occurrence and ticket under a new key, with one more POST and analytics stays off");
     } finally { asVisitor(null); }
   });
 
@@ -1084,35 +1089,41 @@ try {
     const trigger = tid("button-mobile-menu");
     const triggerFocused = () => b!.evaluate(`document.activeElement===document.querySelector(${JSON.stringify(trigger)})`) as Promise<boolean>;
     const expanded = () => b!.evaluate(`document.querySelector(${JSON.stringify(trigger)})?.getAttribute('aria-expanded')`) as Promise<string>;
+    const drawer = tid("mobile-nav-drawer");
     const openMenu = async () => {
       await b!.navigate("/");
       await until(async () => await present(trigger), "menu button");
       await b!.click(trigger);
-      await until(async () => await present(tid("mobile-nav-drawer")), "drawer open");
+      // Wait for the dialog's autofocus and opening transition before issuing another user input.
+      await until(() => b!.evaluate(`(() => {
+        const panel = document.querySelector(${JSON.stringify(drawer)});
+        return panel?.dataset.state === "open" && panel.contains(document.activeElement)
+          && panel.getAnimations().every(animation => animation.playState !== "running" && !animation.pending);
+      })()`) as Promise<boolean>, "drawer open and focused");
     };
-    const closed = () => until(async () => !(await present(tid("mobile-nav-drawer"))), "drawer unmounted");
+    const closed = (action: string) => until(async () => !(await present(drawer)), `drawer unmounted after ${action}`);
 
     await openMenu();
     check(await expanded() === "true" && await b!.evaluate(`document.querySelector(${JSON.stringify(trigger)}).getAttribute('aria-controls')`) === await b!.evaluate(`document.querySelector('[data-testid="mobile-nav-drawer"]').id`), "Open menu: the button reports expanded and controls the drawer");
     await press("Escape", "Escape", 27);
-    await closed(); await settle(400);
+    await closed("Escape"); await settle(400);
     check(await triggerFocused() && await expanded() === "false", "Menu then Escape: focus returns to the Menu button and it reports collapsed");
 
     await openMenu();
     await b!.click('[data-testid="mobile-nav-drawer"] > button');
-    await closed(); await settle(400);
+    await closed("close button"); await settle(400);
     check(await triggerFocused() && await expanded() === "false", "Menu then the X button: focus returns to the Menu button");
 
     await openMenu();
     await b!.call("Input.dispatchMouseEvent", { type: "mousePressed", x: 12, y: 420, button: "left", clickCount: 1 });
     await b!.call("Input.dispatchMouseEvent", { type: "mouseReleased", x: 12, y: 420, button: "left", clickCount: 1 });
-    await closed(); await settle(400);
+    await closed("overlay click"); await settle(400);
     check(await triggerFocused(), "Menu then the overlay: focus returns to the Menu button");
 
     await openMenu();
     check(String(await b!.evaluate("location.pathname")) === "/", "The drawer opened on the home page");
     await b!.click(tid("link-mobile-talk"));
-    await closed(); await settle(500);
+    await closed("link navigation"); await settle(500);
     check(String(await b!.evaluate("location.pathname")) === "/about-contact", "A link in the drawer navigates to its page");
     await until(async () => await b!.evaluate("document.activeElement?.tagName") === "MAIN", "focus reaches the destination's main region", 40);
     check(!(await triggerFocused()) && await b!.evaluate("document.querySelector('main')===document.activeElement && !!document.querySelector('[data-testid=\"form-general-inquiry\"]')?.closest('main')"), "After a link navigation focus lands on the destination page's own main region, not on the old Menu button");
@@ -1121,7 +1132,7 @@ try {
     await openMenu();
     await b!.evaluate(`window.__detached = document.querySelector(${JSON.stringify(trigger)}); window.__detached.remove();`);
     await press("Escape", "Escape", 27);
-    await closed(); await settle(400);
+    await closed("Escape with trigger detached"); await settle(400);
     check(await b!.evaluate("!document.body.contains(window.__detached) && document.activeElement!==window.__detached"), "Negative control: with the trigger removed focus cannot be on it, so the restoration check fails for the intended reason");
   });
 

@@ -381,6 +381,13 @@ export async function verifyRecipientBinding(
   return { ok: true, reason: null, bindingHash: row.bindingHash, binding: row.binding, evidence: row.evidence };
 }
 
+/** Count one qualified primary recipient per business using the release inventory's gates. */
+export async function countDiscoveryQualifiedPrimaries(intentIds: string[]) {
+  if (intentIds.length === 0) return 0;
+  const { results } = await evaluateLaunchRows({ intentIds });
+  return new Set(results.filter(row => !row.failure).map(row => row.businessId)).size;
+}
+
 export async function computeSfpLaunchInventory(ctx?: LaunchReadContext): Promise<SfpLaunchInventory> {
   const { results } = await evaluateLaunchRows({ ctx });
   const summarize = (state: Row["state"]): LaunchInventoryPopulation => {

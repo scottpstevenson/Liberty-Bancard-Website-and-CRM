@@ -1,3 +1,4 @@
+import { IntakeTriage } from "@/components/intake/IntakeTriage";
 import { MerchantSubmittedReferrals } from "@/components/intake/MerchantSubmittedReferrals";
 import { IntakeAutomationStatus } from "@/components/intake/IntakeAutomationStatus";
 import { lazy, Suspense } from "react";
@@ -45,6 +46,8 @@ export default function IntakeCenter() {
         <PageHeadingLevel level={2}>
           {intakeViews.map(view => <TabsContent key={view} value={view} className="min-w-0 space-y-4 pt-2" data-testid={`intake-panel-${view}`}>
             <p className="text-sm text-muted-foreground">{descriptions[view]}</p>
+            {selection.value === view && <IntakeTriage kind={view} />}
+            {selection.value === "referrals" && view === "referrals" && <IntakeTriage kind="merchant_referrals" />}
             <Suspense fallback={<div role="status" aria-label={`Loading ${intakeViewLabels[view]}`}><Skeleton className="h-40 w-full" /><span className="sr-only">Loading…</span></div>}>
               {selection.value === view && (view === "forms" ? <Forms basePath="/dashboard/intake" /> : view === "merchants" ? <Merchants basePath="/dashboard/intake" /> : view === "applications" ? <Applications /> : view === "introductions" ? <Introductions /> : <><Referrals /><MerchantSubmittedReferrals /></>)}
             </Suspense>

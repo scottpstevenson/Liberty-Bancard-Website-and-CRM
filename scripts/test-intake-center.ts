@@ -58,6 +58,18 @@ try{
  const sent=await h.request('admin','POST',previewPath+'/send',payload);eq(sent.status,200,'Previewed correspondence queues');
  eq((await h.request('admin','POST',previewPath+'/send',payload)).body.requestId,sent.body.requestId,'Same command reuses one occurrence');
  const automatic=(await q("SELECT request_id FROM intake_operations WHERE source_kind='merchants' AND source_id=$1",[String(m.id)]))[0];
+ const triagePath='/api/intake-center/triage/merchants';
+ eq((await h.request('agent','GET',triagePath)).status,403,'Agent cannot read intake triage');
+ const { rows: [linkedTask] } = await h.pool.query("SELECT task_id FROM intake_operations WHERE source_kind='merchants' AND source_id=$1",[String(m.id)]);
+ await q("UPDATE tasks SET assigned_to=$2,due_date='2020-01-01',status='pending' WHERE id=$1",[linkedTask.task_id,h.email('admin')]);
+ const triageOpen=await h.request('manager','GET',triagePath);
+ eq(triageOpen.status,200,'Manager can read merchant triage');
+ const triageRow=triageOpen.body.find((r:any)=>r.id===String(m.id));
+ eq(triageRow.owner,h.email('admin'),'Triage reads the linked task owner');
+ eq(triageRow.deadline_open,true,'Open linked task exposes its review deadline');
+ eq(triageRow.staff_alert_state,'pending','Triage reads the staff email state from the outbox');
+ await q("UPDATE tasks SET status='completed',authority_state='completed' WHERE id=$1",[linkedTask.task_id]);
+ eq((await h.request('manager','GET',triagePath)).body.find((r:any)=>r.id===String(m.id)).deadline_open,false,'Completed tasks cannot show a missed SLA');
  const effect=(await q("SELECT id FROM inbound_request_effects WHERE request_id=$1 AND effect_key='transactional_ack'",[automatic.request_id]))[0];
  let attempts=0;
  const outcome=await ack.dispatchAcknowledgement(effect.id,{send:async p=>{attempts++;const allowed=await ack.verifyAckTransportCapability(p as any,p.inboundAck as any);eq(allowed.ok,true,'Real durable receipt capability admits exact content while outbound paused');eq((await ack.verifyAckTransportCapability({...p,to:'attacker@example.test'} as any,p.inboundAck as any)).ok,false,'Transport denies swapped recipient');return {success:true,messageId:'synthetic-no-provider'};}});

@@ -1,3 +1,4 @@
+import { TerminalInquiryForm } from "@/components/intake/TerminalInquiryForm";
 import { SEO, getServiceSchema, getFAQSchema } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
@@ -39,7 +40,6 @@ import {
   FST_SERVICE_DESCRIPTION,
   FST_HERO,
   FST_OFFER,
-  FST_INQUIRY_PATH,
   FST_STATEMENT_REVIEW_PATH,
   FST_PLACEMENT_CLAIM,
   FST_EQUIPMENT_TERMS_DISCLOSURE,
@@ -101,10 +101,10 @@ export default function FreeSmartTerminal() {
                 ) : null}
                 <div className="flex flex-col sm:flex-row gap-4 flex-wrap mb-3">
                   <Button size="lg" className="public-cta h-auto max-w-full gap-2 whitespace-normal py-2 text-center leading-snug" asChild>
-                    <Link href={FST_INQUIRY_PATH} data-testid="link-terminal-primary-cta" onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: FST_HERO.primaryCta, offer: "free-terminal" })}>
+                    <a href="#equipment-inquiry" data-testid="link-terminal-primary-cta" onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: FST_HERO.primaryCta, offer: "free-terminal" })}>
                       <Monitor className="w-4 h-4" />
                       {FST_HERO.primaryCta}
-                    </Link>
+                    </a>
                   </Button>
                   <Button size="lg" variant="outline" className="public-cta h-auto max-w-full gap-2 whitespace-normal py-2 text-center leading-snug" asChild>
                     <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-terminal-book-cta" onClick={() => trackBookingCtaClick({ page: "/free-smart-terminal", ctaLabel: "Book a review call" })}>
@@ -120,10 +120,10 @@ export default function FreeSmartTerminal() {
                   {FST_HERO.disclaimer}
                 </p>
               </div>
-              <div className="flex flex-col gap-4 items-center">
-                <PublicImage id="product-clover-flex-3" variant="product" sizes={"(max-width: 351px) calc(100vw - 32px), 320px"} className="block w-full max-w-xs" imgClassName="rounded-md object-contain" data-testid="img-terminal-clover" />
-                <PublicImage id="product-pax-a920" variant="product" sizes={"(max-width: 351px) calc(100vw - 32px), 320px"} className="block w-full max-w-xs" imgClassName="rounded-md object-contain" data-testid="img-terminal-pax" />
-                <p className="text-xs text-muted-foreground max-w-xs text-center" data-testid="text-terminal-image-note">{FST_OFFER.imageNote}</p>
+              <div id="equipment-inquiry" tabIndex={-1} className="scroll-mt-28 min-w-0 space-y-3" aria-labelledby="equipment-inquiry-heading">
+                <h2 id="equipment-inquiry-heading" className="public-h3 font-display text-foreground">Tell us about your checkout</h2>
+                <p className="public-body text-muted-foreground">No statement needed. A Liberty specialist will review your setup and follow up about terminal options.</p>
+                <TerminalInquiryForm offer="free-terminal" />
               </div>
             </div>
           </div>
@@ -131,26 +131,33 @@ export default function FreeSmartTerminal() {
 
         {/* Offer explanation: the equipment and the processing together, with the approved terms adjacent */}
         <section className="bg-background py-10 border-b border-border" data-testid="section-terminal-offer">
-          <div className="public-container max-w-3xl">
-            <h2 className="public-h2 font-display font-bold text-foreground mb-4" data-testid="text-terminal-offer-heading">
-              {FST_OFFER.heading}
-            </h2>
-            <p className="text-muted-foreground mb-6 leading-relaxed">{FST_OFFER.body}</p>
-            <ul className="space-y-3 mb-6">
-              {FST_OFFER.checklist.map((item, i) => (
-                <li key={item} className="flex items-start gap-3" data-testid={`terminal-offer-item-${i}`}>
-                  <CheckCircle2 className="w-5 h-5 text-emerald-500 mt-0.5 shrink-0" />
-                  <span className="text-foreground text-sm">{item}</span>
-                </li>
-              ))}
-            </ul>
-            <p className="text-sm text-muted-foreground mb-4 leading-relaxed" data-testid="text-terminal-offer-terms">{FST_EQUIPMENT_TERMS_DISCLOSURE}</p>
-            <p className="text-sm text-foreground">
-              {FST_OFFER.secondaryLead}{" "}
-              <Link href={FST_STATEMENT_REVIEW_PATH} className="public-tap inline-flex items-center text-primary underline" data-testid="link-terminal-offer-statement">
-                {FST_OFFER.secondaryCta}
-              </Link>
-            </p>
+          <div className="public-container grid items-center gap-8 lg:grid-cols-2">
+            <div>
+              <h2 className="public-h2 font-display font-bold text-foreground mb-4" data-testid="text-terminal-offer-heading">
+                {FST_OFFER.heading}
+              </h2>
+              <p className="text-muted-foreground mb-6 leading-relaxed">{FST_OFFER.body}</p>
+              <ul className="space-y-3 mb-6">
+                {FST_OFFER.checklist.map((item, i) => (
+                  <li key={item} className="flex items-start gap-3" data-testid={`terminal-offer-item-${i}`}>
+                    <CheckCircle2 className="w-5 h-5 text-emerald-500 mt-0.5 shrink-0" />
+                    <span className="text-foreground text-sm">{item}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-sm text-muted-foreground mb-4 leading-relaxed" data-testid="text-terminal-offer-terms">{FST_EQUIPMENT_TERMS_DISCLOSURE}</p>
+              <p className="text-sm text-foreground">
+                {FST_OFFER.secondaryLead}{" "}
+                <Link href={FST_STATEMENT_REVIEW_PATH} className="public-tap inline-flex items-center text-primary underline" data-testid="link-terminal-offer-statement">
+                  {FST_OFFER.secondaryCta}
+                </Link>
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 items-center">
+              <PublicImage id="product-clover-flex-3" variant="product" sizes={"(max-width: 639px) calc((100vw - 3rem) / 2), 320px"} className="block w-full max-w-xs" imgClassName="rounded-md object-contain" data-testid="img-terminal-clover" />
+              <PublicImage id="product-pax-a920" variant="product" sizes={"(max-width: 639px) calc((100vw - 3rem) / 2), 320px"} className="block w-full max-w-xs" imgClassName="rounded-md object-contain" data-testid="img-terminal-pax" />
+              <p className="text-xs text-muted-foreground col-span-2 text-center" data-testid="text-terminal-image-note">{FST_OFFER.imageNote}</p>
+            </div>
           </div>
         </section>
 
@@ -224,11 +231,11 @@ export default function FreeSmartTerminal() {
                   </p>
                 </div>
                 <Button className="h-auto min-h-9 max-w-full gap-2 whitespace-normal py-2 text-left leading-snug" asChild>
-                  <Link href={FST_INQUIRY_PATH} data-testid="link-eligibility-upload" onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: FST_HERO.primaryCta, ctaLocation: "eligibility", offer: "free-terminal" })}>
+                  <a href="#equipment-inquiry" data-testid="link-eligibility-upload" onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: FST_HERO.primaryCta, ctaLocation: "eligibility", offer: "free-terminal" })}>
                     <Monitor className="w-4 h-4" />
                     {FST_HERO.primaryCta}
                     <ArrowRight className="w-4 h-4" />
-                  </Link>
+                  </a>
                 </Button>
               </div>
               <div>
@@ -243,10 +250,10 @@ export default function FreeSmartTerminal() {
                     </p>
                     <div className="flex flex-col gap-3">
                       <Button className="w-full gap-2 h-auto max-w-full whitespace-normal py-2 text-center leading-snug" asChild>
-                        <Link href={FST_INQUIRY_PATH} data-testid="link-cta-card-upload" onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: FST_HERO.primaryCta, ctaLocation: "card", offer: "free-terminal" })}>
+                        <a href="#equipment-inquiry" data-testid="link-cta-card-upload" onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: FST_HERO.primaryCta, ctaLocation: "card", offer: "free-terminal" })}>
                           <Monitor className="w-4 h-4" />
                           {FST_HERO.primaryCta}
-                        </Link>
+                        </a>
                       </Button>
                       <Button variant="outline" className="w-full gap-2 h-auto max-w-full whitespace-normal py-2 text-center leading-snug" asChild>
                         <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-cta-card-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/free-smart-terminal" })}>
@@ -327,10 +334,10 @@ export default function FreeSmartTerminal() {
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
               <Button size="lg" className="public-cta gap-2 bg-accent hover:bg-accent border-accent text-white h-auto max-w-full whitespace-normal py-2 text-center leading-snug" asChild>
-                <Link href={FST_INQUIRY_PATH} data-testid="link-final-upload" onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: FST_HERO.primaryCta, ctaLocation: "final_cta", offer: "free-terminal" })}>
+                <a href="#equipment-inquiry" data-testid="link-final-upload" onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: FST_HERO.primaryCta, ctaLocation: "final_cta", offer: "free-terminal" })}>
                   <Monitor className="w-4 h-4" />
                   {FST_HERO.primaryCta}
-                </Link>
+                </a>
               </Button>
               <Button size="lg" variant="outline" className="public-cta gap-2 bg-transparent border-white/30 text-white hover:bg-white/10 h-auto max-w-full whitespace-normal py-2 text-center leading-snug" asChild>
                 <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-final-book" onClick={() => trackBookingCtaClick({ page: "/free-smart-terminal", ctaLabel: "Book a review call", ctaLocation: "final_cta" })}>

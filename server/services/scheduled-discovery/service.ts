@@ -16,6 +16,7 @@ import {decideOrganizationIdentity,type OrganizationCandidate} from '../organiza
 import {claimCsvExecution} from '../import-execution';
 import {processPersistedCsvImport} from '../csv-import-processor';
 import {storage} from '../../storage';
+import {countDiscoveryQualifiedPrimaries} from '../sfp-launch-inventory';
 import {getBackgroundProfile,getSelectiveGroups,WORKER_CAPABILITY_GROUPS} from '../background-profile';
 import {TERMS,COUNTIES,MATCHING_POLICY,MAPPER_VERSION,contentHash,normalizeDiscoveryRow,type ArtifactRow} from './policy';
 const rows=(r:any):any[]=>r?.rows??[];
@@ -98,7 +99,23 @@ export async function discoveryRunDetail(id:string,offset=0) {
   FROM cr04_enrollment_intents i JOIN selected s ON s.id=i.business_id WHERE i.preparation_state IS NOT NULL GROUP BY 1`);
  const validation=await query(sql`WITH selected AS (${population}) SELECT v.state,count(DISTINCT v.id)::integer intents
   FROM validation_intents v JOIN contacts c ON c.id=v.contact_id JOIN selected s ON s.id=c.business_id GROUP BY 1`);
- return {...r,rows:page.rows,offset,pageSize:25,usage,downstream:{population:'Current state of businesses touched by this import; existing contacts and later work can be included.',crawl,materialization,preparation,validation}};
+ // Now-state counts are within the retained, durably imported business cohort, not attributable new contacts.
+ const linked=await one(sql`WITH selected AS (${population})
+  SELECT count(DISTINCT c.id)::integer n FROM selected s JOIN contacts c ON c.business_id=s.id
+  JOIN contact_business_link_decisions d ON d.contact_id=c.id AND d.business_id=s.id
+  WHERE c.record_class='production' AND c.archived_at IS NULL AND d.decision='verified' AND d.superseded_at IS NULL`);
+ const intentLimit = 200;
+ const intents=await query(sql`WITH selected AS (${population}) SELECT i.id::text AS id
+  FROM selected s JOIN cr04_enrollment_intents i ON i.business_id=s.id
+  WHERE i.program_id IS NOT NULL AND i.preparation_state IN ('ready_held','pending_validation')
+  ORDER BY i.id LIMIT ${intentLimit+1}`);
+ const qualifiedPrimaries = intents.length > intentLimit ? null
+  : await countDiscoveryQualifiedPrimaries(intents.map(i => i.id));
+ return {...r,rows:page.rows,offset,pageSize:25,usage,downstream:{
+  population:'Current state of businesses touched by this import. Existing contacts and later work can be included.',
+  verifiedContactLinks:linked.n,qualifiedPrimaries,crawl,materialization,preparation,validation,
+ }};
+
 }
 export async function updateDiscoverySchedule(actorId:string,input:{enabled:boolean;monthlyBudgetUsd?:number;dailyDispatchCount:number;repeatDays:number;timezone:string}) {
  await initializeDiscoveryDefinitions(actorId);

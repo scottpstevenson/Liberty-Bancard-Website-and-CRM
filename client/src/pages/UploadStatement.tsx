@@ -767,6 +767,7 @@ export default function UploadStatement() {
                     <Button
                       type="submit"
                       className="public-form-action statement-submit w-full text-base font-bold"
+                      style={{ minHeight: "var(--public-action-height, 3.25rem)" }}
                       disabled={isUploading}
                       data-testid="button-upload-submit"
                     >
