@@ -16,6 +16,8 @@ import net from "node:net";
 import { serverError, safeMessage } from "../utils/server-error";
 import { authorizeContactAccess } from "../services/crm-object-access";
 import { handleMarketplaceBooking } from "./ghl-marketplace-booking";
+import { getGhlStaffActivity } from "../services/ghl";
+import { enqueueVerifiedGhlActivityAlert } from "../services/team-intake-alerts";
 
 export function registerIntegrationsRoutes(app: Express) {
   const getAuthorizedRecipient = async (req: any, res: any, rawContactId: unknown, respond = true) => {
@@ -285,6 +287,8 @@ export function registerIntegrationsRoutes(app: Express) {
       }
 
       await handleGhlWebhook(req.body);
+      const staffActivity = ed25519Sig || legacySig ? getGhlStaffActivity(req.body) : null;
+      if (staffActivity) await enqueueVerifiedGhlActivityAlert(staffActivity);
       res.json({ success: true });
     } catch (err: any) {
       console.error("GHL webhook error:", err.message);

@@ -59,6 +59,7 @@ export const handleMarketplaceBooking: RequestHandler = async (req, res, next) =
     calendarId: event.appointment.calendarId,
     locationId,
     eventAt: event.appointment.dateAdded,
+    startTime: event.appointment.startTime,
   };
   return marketplaceReceipt(req, res, async () => {
     try {

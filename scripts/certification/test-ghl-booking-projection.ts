@@ -99,6 +99,63 @@ try {
   check((await first("SELECT deal_id FROM inbound_requests WHERE occurrence_key=$1", [`ghl:appointment_booked:${unknown.appointment.id}`])).deal_id, null,
     "An unlinked booking does not guess a deal");
 
+  const { processGhlBookingConsentChecks } = await import("../../server/services/ghl-booking-consent");
+  const form = "fixture-sales-booking-form";
+  const disclosure = "I agree to receive automated appointment confirmation texts from Liberty Bancard at the mobile number above. Message frequency: one confirmation text per opted-in appointment. This is optional and is not required to book or buy services. Message and data rates may apply. Reply STOP to opt out or HELP for help.";
+  const submission = {
+    id: "booking-form-" + tag, contactId: remoteContact, formId: form, createdAt: bookedAt,
+    others: { internalSource: { type: "calendars", id: event.appointment.calendarId }, location_id: event.locationId,
+      selected_slot: event.appointment.startTime, phone: "+19545550147", terms_and_conditions: disclosure },
+  };
+  const originalFetch = globalThis.fetch;
+  let submissions: unknown[] = [];
+  let formsReads = 0;
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : input.toString());
+    if (url.origin !== "https://services.leadconnectorhq.com") return originalFetch(input, init);
+    assert.equal(url.pathname, "/forms/submissions");
+    assert.equal(init?.method ?? "GET", "GET");
+    assert.equal(url.searchParams.get("formId"), form);
+    assert.equal(url.searchParams.get("locationId"), event.locationId);
+    formsReads++;
+    return Response.json({ submissions: url.searchParams.get("q") === remoteContact ? submissions : [] });
+  };
+  const consentCheck = (id: string) => first("SELECT state,reason,consent_event_id FROM ghl_booking_sms_consent_checks WHERE appointment_id=$1", [id]);
+  try {
+    process.env.GHL_PRIVATE_INTEGRATION_TOKEN = "fixture-forms-readonly";
+    process.env.GHL_BOOKING_CONSENT_FORM_ID = form;
+    // Hold unrelated test bookings intentionally sharing the main fixture slot.
+    await q("UPDATE ghl_booking_sms_consent_checks SET next_check_at=now()+interval '1 hour' WHERE appointment_id<>$1", [appointmentId]);
+    await processGhlBookingConsentChecks();
+    check((await consentCheck(appointmentId)).state, "pending", "A booking webhook that beats the form submission leaves durable work");
+    submissions = [submission];
+    await q("UPDATE ghl_booking_sms_consent_checks SET next_check_at=now() WHERE appointment_id=$1", [appointmentId]);
+    await processGhlBookingConsentChecks();
+    const optIn = await consentCheck(appointmentId);
+    check(optIn.state, "opted_in", "Delayed provider evidence records the exact booking opt-in while sending is off");
+    check(await first("SELECT consented, purpose, evidence->>'appointmentId' AS appointment_id FROM consent_audit_logs WHERE id=$1", [optIn.consent_event_id]),
+      { consented: true, purpose: "booking_confirmation", appointment_id: appointmentId }, "Consent evidence is restricted to this appointment");
+    check((await first("SELECT consent_sms FROM contacts WHERE id=$1", [contact.id])).consent_sms, false, "A booking does not enable marketing SMS");
+    await processGhlBookingConsentChecks();
+    check(formsReads, 2, "Settled consent checks are not reprocessed");
+
+    const next = { ...event, appointment: { ...event.appointment, id: appointmentId + "-unchecked",
+      startTime: new Date(Date.parse(event.appointment.startTime) + 60 * 60_000).toISOString() } };
+    await deliver(next);
+    submissions = [{ ...submission, id: "unchecked-" + tag, others: { ...submission.others,
+      selected_slot: next.appointment.startTime, terms_and_conditions: null } }];
+    await processGhlBookingConsentChecks();
+    check((await consentCheck(next.appointment.id)).state, "not_opted_in", "An unchecked form never inherits the previous booking's permission");
+    check((await first("SELECT count(*)::int AS n FROM team_intake_alerts WHERE source_kind='ghl_booking' AND source_id=(SELECT id::text FROM inbound_requests WHERE occurrence_key=$1)", [`ghl:appointment_booked:${appointmentId}`])).n,
+      1, "Redelivery leaves one internal booking alert");
+    check((await first("SELECT count(*)::int AS n FROM followup_effect_receipts WHERE channel='sms' AND owner_kind='ghl_booking_confirmation'")).n,
+      0, "Consent testing cannot dispatch a booking text");
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.GHL_PRIVATE_INTEGRATION_TOKEN;
+    delete process.env.GHL_BOOKING_CONSENT_FORM_ID;
+  }
+
   // Supporting statement and application facts are synthetic persisted domain records.
   const uploadToken = randomUUID();
   await q("INSERT INTO statement_requests(contact_id,deal_id,upload_token,upload_url,requested_at) VALUES($1,$2,$3,$4,timezone('UTC',clock_timestamp()))",

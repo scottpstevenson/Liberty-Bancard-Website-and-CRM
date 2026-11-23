@@ -18,6 +18,7 @@ import { lockSfpBusinessSafetySentinel } from "./cro03/sfp-eligibility-locks";
 
 export const CONSENT_SCHEMA_VERSION = 1;
 export const DEFAULT_CONSENT_PURPOSE = "outreach";
+export const BOOKING_CONFIRMATION_SMS_PURPOSE = "booking_confirmation";
 const MAX_PUBLIC_FUTURE_MS = 5 * 60 * 1000;
 
 export type ConsentSubjectType =
@@ -338,6 +339,9 @@ async function writeCompatibilityProjection(
   effectiveAt: Date,
 ): Promise<void> {
   const channel = command.kind === "global_dnc" ? null : commandChannel(command);
+  // Booking-only permission is separate from the legacy outreach compatibility fields.
+  if (command.purpose === BOOKING_CONFIRMATION_SMS_PURPOSE && channel === "sms"
+      && (command.kind === "opt_in" || command.kind === "opt_out")) return;
   if (subject.subject_type === "contact") {
     if (command.kind === "global_dnc") {
       await tx.execute(sql`

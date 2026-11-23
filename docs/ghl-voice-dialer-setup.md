@@ -78,6 +78,10 @@ To verify the connection, place a test call from an agreed test number and compa
 
 HighLevel's built-in Missed Call Text Back runs independently of the CRM's outbound pause. Check its status before testing the missed-call path. Leave CRM-controlled outbound paused during inbound verification. Carrier approval shown in the HighLevel Trust Center can be recorded by a Liberty admin in **Outbound Readiness**. Each CRM-controlled SMS still requires its own recipient and pause checks.
 
+The public Sales Meeting form collects an optional, appointment-only SMS choice. Liberty checks the signed booking against HighLevel's matching form submission and exact CRM phone. The consent record stays scoped to that appointment and does not grant outreach permission. The recovery tick checks delayed form submissions. Automatic booking SMS stays disabled.
+
+Signed incoming calls and texts and confirmed Sales Meeting bookings queue staff-only emails to Scott through the existing intake alert outbox. The alerts contain a CRM link, with message bodies and call recordings kept in their respective systems. The Voice AI summary email remains managed in HighLevel. Verify the internal outbox and opt-in counts at `/api/admin/team-intake-alerts/status`. SMTP acceptance and inbox arrival are separate checks.
+
 ---
 
 ## 4. Voicemail Drop Setup

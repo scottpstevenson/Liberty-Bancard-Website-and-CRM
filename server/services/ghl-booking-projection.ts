@@ -5,6 +5,8 @@ import { calendarPurposeOf } from "./ghl-calendar-purpose";
 import { resolveSalesBooking } from "./message-cta-contract";
 import { runReceiptTxStep } from "./ghl-webhook-effects";
 import { claimVerifiedProviderEvent, settleVerifiedBookingProjection } from "./inbound-request-authority";
+import { enqueueTeamIntakeAlert } from "./team-intake-alerts";
+import { queueGhlBookingConsentCheck } from "./ghl-booking-consent";
 
 export interface VerifiedBooking {
   appointmentId: string;
@@ -12,6 +14,7 @@ export interface VerifiedBooking {
   calendarId: string | null;
   locationId: string | null;
   eventAt: string;
+  startTime?: string;
   opportunityId?: string;
 }
 
@@ -49,6 +52,14 @@ export async function projectVerifiedGhlBooking(booking: VerifiedBooking, legacy
       : eligibleSalesCalendar && !dealId ? "BOOKING_SALES_DEAL_UNRESOLVED"
       : eligibleSalesCalendar && !contact.businessId ? "BOOKING_BUSINESS_UNLINKED" : null;
     await settleVerifiedBookingProjection(tx, requestId, { contactId: contact?.id ?? null, dealId }, reviewReason);
+    if (eligibleSalesCalendar) {
+      await enqueueTeamIntakeAlert(tx, "ghl_booking", requestId);
+      if (booking.startTime) {
+        await queueGhlBookingConsentCheck(tx, {
+          appointmentId: booking.appointmentId, requestId, createdAt: booking.eventAt, startTime: booking.startTime,
+        });
+      }
+    }
     if (contact && dealId && !reviewReason) {
       await tx.execute(sql`SELECT phase7_emit_conversion(
         'ghl_appointment_booked', ${booking.appointmentId}, 'engaged', ${contact.id}, ${dealId},

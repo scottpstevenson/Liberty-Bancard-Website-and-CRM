@@ -90,6 +90,20 @@ try{
  check(calls.every(m=>m.to===svc.TEAM_INTAKE_RECIPIENT),'Every intercepted envelope targets only Scott');
  await svc.processTeamIntakeAlerts();check(calls.length===5,'Subsequent sweeps do not resend completed events');
  check((await rows('SELECT state,epoch FROM outbound_pause_control'))[0].state==='paused','Staff alerts never unpause customer/prospect outbound');
+ const booking=await inbound.claimVerifiedProviderEvent({sourceType:'appointment_booked',eventId:'fixture-booking-'+identity,payload:{}});
+ assert.equal(booking.outcome,'claimed');
+ await db.transaction(tx=>svc.enqueueTeamIntakeAlert(tx,'ghl_booking',booking.request.id));
+ for (const channel of ['call','sms'] as const) {
+  const activity={channel,locationId:'fixture-location',messageId:channel+'-'+identity};
+  await svc.enqueueVerifiedGhlActivityAlert(activity);
+  await svc.enqueueVerifiedGhlActivityAlert(activity);
+ }
+ const beforeGhl=calls.length;
+ await svc.processTeamIntakeAlerts();
+ assert.deepEqual(calls.slice(beforeGhl).map(m=>m.subject).sort(),[
+  'Liberty Bancard: New inbound call','Liberty Bancard: New inbound text','Liberty Bancard: New sales meeting booked',
+ ]);
+ check(calls.slice(beforeGhl).every(m=>m.to===svc.TEAM_INTAKE_RECIPIENT),'Incoming call, text and booking each deliver one staff-only SMTP envelope while globally paused');
  const replaySource=await merchant('claim-replay'),replayRow=await claim(await alert('merchant_referral:'+replaySource.id));
  const replayMessage={...svc.renderTeamIntakeAlert(replayRow),teamIntakeAlert:{alertId:replayRow.id,attemptToken:replayRow.attempt_token}};
  const beforeReplay=calls.length;

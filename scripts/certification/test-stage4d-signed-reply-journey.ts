@@ -124,6 +124,19 @@ try {
         && await inboundEvents(c.id) === 0, "native calls require the correct location, signature and message ID");
       const first = await post(GENERIC, native);
       const replay = await post(GENERIC, native, { raw: first.raw });
+      check((await h.pool.query("SELECT count(*)::int n FROM team_intake_alerts WHERE event_kind='ghl_inbound_call'")).rows[0].n === 1,
+        "A scoped signed call and its replay leave one staff email");
+      const inboundText = reply({ ghl: "unmapped-staff-alert-contact" }, `native-sms-${tag}`, {
+        type: "InboundMessage", messageType: "TYPE_SMS", locationId: process.env.GHL_LOCATION_ID,
+      });
+      await post(GENERIC, inboundText);
+      await post(GENERIC, inboundText);
+      await post(GENERIC, { ...inboundText, locationId: "other-location", messageId: "other-location-sms" });
+      await post(GENERIC, { ...inboundText, direction: "outbound", messageId: "outbound-sms" });
+      const smsAlerts = (await h.pool.query("SELECT recipient,payload FROM team_intake_alerts WHERE event_kind='ghl_inbound_sms'")).rows;
+      check(smsAlerts.length === 1 && smsAlerts[0].recipient === "scott@libertybancard.com"
+        && Object.keys(smsAlerts[0].payload).length === 0,
+        "One staff-only SMS alert survives replay and missing CRM identity; outbound and other locations leave no alert");
       const rows = (await h.pool.query(
         `SELECT channel, subject, body, metadata, created_at FROM communication_events WHERE contact_id=$1 AND ghl_message_id=$2`,
         [c.id, messageId],
@@ -137,6 +150,17 @@ try {
       check(first.status === 200 && replay.status === 200 && await receipts(c.id) === 1,
         "a signed call converges to one metadata-only CRM event; recording and message body are discarded");
       check((await optOutState(c.id, "sms")).length === 0, "call content cannot execute SMS STOP logic");
+      const summary = {
+        type: "NoteCreate", locationId: process.env.GHL_LOCATION_ID, contactId: c.ghl,
+        id: `native-call-summary-${tag}`, dateAdded, body: "Pilot call summary: caller asked about booking",
+      };
+      const acceptedNote = await post(GENERIC, summary);
+      const replayedNote = await post(GENERIC, summary, { raw: acceptedNote.raw });
+      const { storage } = await import("../../server/storage");
+      const crmNotes = await storage.getNotes("contact", c.id);
+      check(acceptedNote.status === 200 && replayedNote.status === 200
+        && crmNotes.filter(note => note.authorName === "GHL Sync" && note.content === summary.body).length === 1,
+      "a signed HighLevel contact note is visible in the linked CRM contact and replay adds no duplicate");
       const voicemailId = `native-voicemail-${tag}`;
       const voicemail = await post(GENERIC, { ...native, messageId: voicemailId, messageTypeString: "TYPE_VOICEMAIL" });
       check(voicemail.status === 200 && await inboundEvents(c.id, voicemailId) === 0,

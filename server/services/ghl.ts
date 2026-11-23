@@ -1764,6 +1764,17 @@ const GHL_VOICEMAIL_TYPES = new Set(["voicemail", "VOICEMAIL", "TYPE_VOICEMAIL",
 const GHL_CALL_MESSAGE_TYPES = new Set(["CALL", "TYPE_CALL", ...GHL_VOICEMAIL_TYPES]);
 const GHL_CALL_STATUSES = new Set(["completed", "no-answer", "busy", "failed", "canceled"]);
 
+export function getGhlStaffActivity(payload: Record<string, unknown>):
+  { locationId: string; messageId: string; channel: "call" | "sms" } | null {
+  const { type, direction, locationId, messageId, messageType, messageTypeString } = payload;
+  if (type !== "InboundMessage" || direction !== "inbound" || typeof locationId !== "string"
+      || !locationId || locationId !== process.env.GHL_LOCATION_ID || typeof messageId !== "string"
+      || !messageId.trim() || messageId.length > 200) return null;
+  const channel = [messageType, messageTypeString].some(value => typeof value === "string" && GHL_CALL_MESSAGE_TYPES.has(value))
+    ? "call" : normalizeGhlInboundChannel(messageType) ?? normalizeGhlInboundChannel(messageTypeString);
+  return channel === "call" || channel === "sms" ? { locationId, messageId, channel } : null;
+}
+
 async function recordGhlInboundCall(payload: Record<string, unknown>) {
   const { locationId, contactId, messageId, dateAdded, callDuration, callStatus, status, messageType, messageTypeString } = payload;
   if (!process.env.GHL_LOCATION_ID || locationId !== process.env.GHL_LOCATION_ID) return;

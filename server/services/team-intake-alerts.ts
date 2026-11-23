@@ -1,7 +1,7 @@
 import {brandedIntakeEmail} from "./intake-email-layout";
 import {sanitizeAuditPayload} from "./audit-sanitizer";
 /** Staff-only intake alerts. No customer send, approval, enrollment or historical backfill. */
-import {randomUUID} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import {sql} from 'drizzle-orm';
 import {db} from '../db';
 
@@ -9,7 +9,7 @@ export const TEAM_INTAKE_RECIPIENT='scott@libertybancard.com';
 export const TEAM_INTAKE_MAX_ATTEMPTS=5;
 type Tx=Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Executor=Pick<Tx,'execute'>;
-export type TeamIntakeSource='application'|'introduction'|'referral'|'merchant_referral'|'inbound'|'merchant_application';
+export type TeamIntakeSource='application'|'introduction'|'referral'|'merchant_referral'|'inbound'|'merchant_application'|'ghl_booking';
 export type TeamIntakeClaim={alertId:string;attemptToken:string};
 const rows=(r:any):any[]=>r.rows??r;
 const query=async(tx:Executor,q:any)=>rows(await tx.execute(q));
@@ -19,7 +19,9 @@ const escape=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const uuid=(v:string)=>/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 
 async function source(tx:Executor,kind:TeamIntakeSource,id:string){
- if(['application','introduction','inbound'].includes(kind)?!uuid(id):!(/^[1-9]\d{0,9}$/.test(id)&&Number(id)<=2147483647))return null;
+ if(['application','introduction','inbound','ghl_booking'].includes(kind)?!uuid(id):!(/^[1-9]\d{0,9}$/.test(id)&&Number(id)<=2147483647))return null;
+ if(kind==='ghl_booking')return one(tx,sql`SELECT source_type FROM inbound_requests
+   WHERE id=${id}::uuid AND source_category='ghl_webhook' AND source_type='appointment_booked'`);
  if(kind==='inbound')return one(tx,sql`SELECT source_type AS company,submitted_email AS email FROM inbound_requests WHERE id=${id}::uuid`);
  if(kind==='merchant_application')return one(tx,sql`SELECT owner_first_name AS name,legal_business_name AS company,owner_email AS email FROM merchant_applications WHERE id=${Number(id)}`);
  if(kind==='application')return one(tx,sql`SELECT a.path,p.contact_name AS name,p.company_name AS company,p.email
@@ -38,7 +40,7 @@ export async function enqueueTeamIntakeAlert(tx:Executor,kind:TeamIntakeSource,i
  const record=await source(tx,kind,id);
  if(!record)throw Error('TEAM_INTAKE_SOURCE_MISSING');
  if(record.introduction_owned)return; // The introduction already owns the alert, including held/duplicate referrals.
- const eventKind=kind==='inbound'?'website_submission':kind==='merchant_application'?'merchant_application':kind==='application'?(record.path==='sales_agent'?'sales_agent_application':'referral_partner_application'):'merchant_referral';
+ const eventKind=kind==='ghl_booking'?'ghl_appointment_booked':kind==='inbound'?'website_submission':kind==='merchant_application'?'merchant_application':kind==='application'?(record.path==='sales_agent'?'sales_agent_application':'referral_partner_application'):'merchant_referral';
  if(kind==='application'&&!['sales_agent','referral'].includes(record.path))throw Error('TEAM_INTAKE_APPLICATION_PATH_INVALID');
  const payload={name:clean(record.name),company:clean(record.company),email:clean(record.email,254),referrer:clean(record.referrer)};
  await tx.execute(sql`INSERT INTO team_intake_alerts(event_key,event_kind,source_kind,source_id,recipient,payload)
@@ -46,7 +48,31 @@ export async function enqueueTeamIntakeAlert(tx:Executor,kind:TeamIntakeSource,i
    ON CONFLICT(event_key) DO NOTHING`);
 }
 
+/** The authenticated provider endpoint is the producer for these metadata-only staff alerts, including callers with no CRM match. */
+export async function enqueueVerifiedGhlActivityAlert(activity: { locationId: string; messageId: string; channel: "call" | "sms" }) {
+  const sourceId = createHash("sha256").update(JSON.stringify([activity.locationId, activity.channel, activity.messageId])).digest("hex");
+  const eventKind = activity.channel === "call" ? "ghl_inbound_call" : "ghl_inbound_sms";
+  await db.execute(sql`INSERT INTO team_intake_alerts(event_key,event_kind,source_kind,source_id,recipient,payload)
+    VALUES(${"ghl_activity:" + sourceId},${eventKind},'ghl_activity',${sourceId},${TEAM_INTAKE_RECIPIENT},'{}'::jsonb)
+    ON CONFLICT(event_key) DO NOTHING`);
+}
+
+const GHL_ALERT_CONTENT = {
+  ghl_inbound_call: { title: "New inbound call", path: "/dashboard/comms-hub?tab=calls", label: "Open Communications" },
+  ghl_inbound_sms: { title: "New inbound text", path: "/dashboard/comms-hub?tab=messages", label: "Open Messages" },
+  ghl_appointment_booked: { title: "New sales meeting booked", path: "/dashboard/tasks-appointments?tab=calendar", label: "Open CRM Calendar" },
+} as const;
+
 export function renderTeamIntakeAlert(row:{event_kind:string;source_kind:string;source_id:string;payload:any}){
+ const communication = GHL_ALERT_CONTENT[row.event_kind as keyof typeof GHL_ALERT_CONTENT];
+ if (communication) {
+   const { title, path, label } = communication;
+   const link = `https://libertybancard.com${path}`;
+   const body = "HighLevel reported this activity. Open the CRM to review details.";
+   return { to: TEAM_INTAKE_RECIPIENT, subject: `Liberty Bancard: ${title}`,
+     html: brandedIntakeEmail(title, body, `<p><a href="${escape(link)}">${label}</a></p>`, false),
+     text: `${title}\n${body}\n${label}: ${link}`, category: "internal_ops" as const };
+ }
  const title=row.source_kind==='inbound'?'New website submission':row.source_kind==='merchant_application'?'New merchant application':row.event_kind==='sales_agent_application'?'New sales-agent application':row.event_kind==='referral_partner_application'?'New referral-partner application':'New merchant referral';
  const tab=row.source_kind==='application'?'applications':row.source_kind==='introduction'?'introductions':'referrals';
  const path=row.source_kind==='inbound'?`/dashboard/intake?tab=forms&ref=${row.source_id.replaceAll('-','').slice(0,8)}`:row.source_kind==='merchant_application'?'/dashboard/intake?tab=merchants':row.source_kind==='merchant_referral'?'/dashboard/intake?tab=referrals':`/dashboard/intake?tab=${tab}${row.source_kind==='application'?'&application='+row.source_id:row.source_kind==='introduction'?'&introduction='+row.source_id:''}`;
@@ -68,7 +94,9 @@ async function verify(tx:Executor,message:Message,claim:TeamIntakeClaim,mark:boo
  const row=await one(tx,sql`SELECT * FROM team_intake_alerts WHERE id=${claim.alertId}::uuid AND state='attempting'
    AND attempt_token=${claim.attemptToken}::uuid AND lease_expires_at>clock_timestamp() AND attempt_count BETWEEN 1 AND 5 FOR UPDATE`);
  if(!row||row.recipient!==TEAM_INTAKE_RECIPIENT||row.dispatched_at)return {ok:false as const,error:'TEAM_INTAKE_CLAIM_UNAVAILABLE'};
- const current=await source(tx,row.source_kind,row.source_id);
+ const current=row.source_kind==='ghl_activity'
+   ? (/^[a-f0-9]{64}$/.test(row.source_id) && ['ghl_inbound_call','ghl_inbound_sms'].includes(row.event_kind) ? {} : null)
+   : await source(tx,row.source_kind,row.source_id);
  if(!current||current.introduction_owned||(row.source_kind==='application'&&(current.path==='sales_agent'?'sales_agent_application':'referral_partner_application')!==row.event_kind))return {ok:false as const,error:'TEAM_INTAKE_SOURCE_UNAVAILABLE'};
  const expected=renderTeamIntakeAlert(row);
  if(message.subject!==expected.subject||message.html!==expected.html||message.text!==expected.text)return {ok:false as const,error:'TEAM_INTAKE_MESSAGE_MISMATCH'};
@@ -80,8 +108,12 @@ export function markTeamIntakeAlertDispatch(message:Message,claim:TeamIntakeClai
 
 export async function readTeamIntakeAlertStatus(){
  const counts=await query(db,sql`SELECT state,count(*)::integer count FROM team_intake_alerts GROUP BY state ORDER BY state`);
+ const ghlCounts=await query(db,sql`SELECT event_kind,state,count(*)::integer count FROM team_intake_alerts
+   WHERE source_kind IN ('ghl_activity','ghl_booking') GROUP BY event_kind,state ORDER BY event_kind,state`);
+ const bookingConsent=await query(db,sql`SELECT state,count(*)::integer count FROM ghl_booking_sms_consent_checks
+   GROUP BY state ORDER BY state`);
  const {isSmtpConfigured}=await import('./smtp-email');
- return {recipient:TEAM_INTAKE_RECIPIENT,sendWhileOutboundPaused:true,smtpConfigured:isSmtpConfigured(),liveDeliveryEnvironment:process.env.NODE_ENV==='production',counts,
+ return {recipient:TEAM_INTAKE_RECIPIENT,sendWhileOutboundPaused:true,smtpConfigured:isSmtpConfigured(),liveDeliveryEnvironment:process.env.NODE_ENV==='production',counts,ghlCounts,bookingConsent,
   note:'Staff intake alerts only. Customer/prospect outbound pause is unchanged. Sent means accepted by SMTP, not inbox delivery.'};
 }
 

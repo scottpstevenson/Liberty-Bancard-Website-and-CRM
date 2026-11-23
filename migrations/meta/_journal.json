@@ -2814,6 +2814,13 @@
       "when": 1800400330012,
       "tag": "0398_restore_outbound_admin_attestations",
       "breakpoints": true
+    },
+    {
+      "idx": 402,
+      "version": "7",
+      "when": 1800400330013,
+      "tag": "0399_ghl_booking_consent_and_staff_alerts",
+      "breakpoints": true
     }
   ]
 }

@@ -2479,8 +2479,8 @@ export const teamIntakeAlerts = pgTable("team_intake_alerts", {
   updatedAt: timestamp("updated_at", {withTimezone:true}).notNull().defaultNow(),
 }, t => [
   check("team_intake_alert_recipient_check", sql`${t.recipient}='scott@libertybancard.com'`),
-  check("team_intake_alert_source_check", sql`${t.sourceKind} IN ('application','introduction','referral','merchant_referral','inbound','merchant_application')`),
-  check("team_intake_alert_event_check", sql`(${t.sourceKind}='application' AND ${t.eventKind} IN ('sales_agent_application','referral_partner_application')) OR (${t.sourceKind}='inbound' AND ${t.eventKind}='website_submission') OR (${t.sourceKind}='merchant_application' AND ${t.eventKind}='merchant_application') OR (${t.sourceKind} IN ('introduction','referral','merchant_referral') AND ${t.eventKind}='merchant_referral')`),
+  check("team_intake_alert_source_check", sql`${t.sourceKind} IN ('application','introduction','referral','merchant_referral','inbound','merchant_application','ghl_activity','ghl_booking')`),
+  check("team_intake_alert_event_check", sql`(${t.sourceKind}='application' AND ${t.eventKind} IN ('sales_agent_application','referral_partner_application')) OR (${t.sourceKind}='inbound' AND ${t.eventKind}='website_submission') OR (${t.sourceKind}='merchant_application' AND ${t.eventKind}='merchant_application') OR (${t.sourceKind} IN ('introduction','referral','merchant_referral') AND ${t.eventKind}='merchant_referral') OR (${t.sourceKind}='ghl_activity' AND ${t.eventKind} IN ('ghl_inbound_call','ghl_inbound_sms')) OR (${t.sourceKind}='ghl_booking' AND ${t.eventKind}='ghl_appointment_booked')`),
   check("team_intake_alert_key_check", sql`${t.eventKey}=${t.sourceKind}||':'||${t.sourceId}`),
   check("team_intake_alert_payload_check", sql`jsonb_typeof(${t.payload})='object'`),
   check("team_intake_alert_state_check", sql`${t.state} IN ('pending','attempting','sent','uncertain','failed')`),
@@ -7603,6 +7603,22 @@ export const inboundRequests = pgTable("inbound_requests", {
   check("inbound_requests_lifecycle_state_chk", sql`lifecycle_state IN ('claimed', 'processing', 'accepted', 'completed', 'failed', 'cancelled', 'review_required')`),
   check("inbound_requests_reconciliation_state_chk", sql`reconciliation_state IN ('not_required', 'pending', 'reconciled', 'orphaned')`),
   check("inbound_requests_assignment_status_chk", sql`assignment_status IN ('pending', 'assigned', 'unassigned_policy_missing', 'review_required', 'preserved')`),
+]);
+
+export const ghlBookingSmsConsentChecks = pgTable("ghl_booking_sms_consent_checks", {
+  appointmentId: text("appointment_id").primaryKey().references(() => ghlAppointmentState.appointmentId, { onDelete: "cascade" }),
+  requestId: uuid("request_id").notNull().unique().references(() => inboundRequests.id, { onDelete: "cascade" }),
+  bookingCreatedAt: timestamp("booking_created_at", { withTimezone: true }).notNull(),
+  bookingStartTime: timestamp("booking_start_time", { withTimezone: true }).notNull(),
+  submissionId: text("submission_id").unique(),
+  consentEventId: integer("consent_event_id").references(() => consentAuditLogs.id),
+  state: text("state").notNull().default("pending"),
+  reason: text("reason"),
+  nextCheckAt: timestamp("next_check_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  check("ghl_booking_sms_consent_checks_state_check", sql`${table.state} IN ('pending','opted_in','not_opted_in','review_required','cancelled')`),
+  index("ghl_booking_sms_consent_due_idx").on(table.nextCheckAt).where(sql`${table.state} = 'pending'`),
 ]);
 
 export const inboundRequestEffects = pgTable("inbound_request_effects", {
