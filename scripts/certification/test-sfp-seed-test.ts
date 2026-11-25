@@ -337,6 +337,31 @@ check((await seed.readSeedStatus()).blockedBecause === "SEED_AUTHORIZATION_EXPIR
 const auth3 = await seed.authorizeSeedMailbox({ mailbox, actorId: "cert" });
 check((await seed.revokeSeedMailbox()).revoked && (await seed.readSeedStatus()).blockedBecause === "SEED_AUTHORIZATION_REVOKED" && !!auth3, "Revocation blocks sending");
 
+// The approved Mailforge identity must work through the same staff-only lease while every pause stays in place.
+const mailforgeAddress = "sales@meetlibertybancard.com";
+process.env.SFP_COLD_SMTP_FROM = mailforgeAddress;
+await seed.authorizeSeedMailbox({ mailbox, actorId: "cert" });
+const mailforgePreview = await seed.previewSeedSend({ packageKey, stepOrder: 1 });
+check(mailforgePreview.fromAddress === mailforgeAddress
+  && !mailforgePreview.outboundPause.allowed, "The staff preview names the Mailforge sender while ordinary outbound stays paused");
+const mailforgeCaptureStart = captured.length;
+const mailforgeSend = await seed.executeSeedSend({
+  packageKey, stepOrder: 1, previewHash: mailforgePreview.previewHash, idempotencyKey: randomUUID(), actorId: "cert",
+});
+check(mailforgeSend.receipt.state === "sent" && captured.length === mailforgeCaptureStart + 1,
+  "The staff-only Mailforge seed is accepted once");
+const mailforgeCapture = captured[mailforgeCaptureStart];
+const mailforgeMessage = parseMessage(mailforgeCapture.data);
+check(mailforgeCapture.rcpt.length === 1 && mailforgeCapture.rcpt[0].includes(mailbox)
+  && mailforgeMessage.header("From")?.includes(mailforgeAddress)
+  && mailforgeMessage.header("Reply-To") === mailforgeAddress
+  && mailforgeMessage.header("Message-ID") === mailforgeSend.receipt.messageId,
+  "The wire message has the exact Sales address, the one staff recipient and the durable Message-ID");
+check(JSON.stringify(await snapshot()) === JSON.stringify(before),
+  "The Mailforge seed changes no prospect, sequence or pause state");
+await seed.revokeSeedMailbox();
+delete process.env.SFP_COLD_SMTP_FROM;
+
 // Static census: only the seed service may present a seed capability, and only the mail service may ask the authority for a lease.
 const { execSync } = await import("node:child_process");
 const grep = (pattern: string) => execSync(`grep -rlE "${pattern}" server --include=*.ts || true`, { encoding: "utf8" }).split("\n").filter(Boolean).sort();
