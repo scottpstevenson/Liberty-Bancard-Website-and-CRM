@@ -104,7 +104,7 @@ import { createPreferenceAwareNotification } from "./digest-service";
 import { enrollContactInGhlWorkflow, tagContactForInboxOrganization } from "./ghl-workflow-enrollment";
 import { addNote as ghlAddNote, addTag as ghlAddTag, triggerWorkflow as ghlTriggerWorkflow, isSdrGhlConfigured } from "./sdr/ghl-client";
 import { getWorkflowEnvValue } from "./ghl-workflows";
-import { sendSmtpEmail, isSmtpConfigured } from "./smtp-email";
+import { sendSmtpEmail, sendSfpColdSmtpEmail, isSmtpConfigured, isSfpColdSmtpConfigured } from "./smtp-email";
 import { generateUnsubscribeToken } from "./unsubscribe-token";
 import { authorizeSequenceDispatch, buildIdempotencyKey, hasSentStep, getSendLogByKey, reopenUnsentAttempt, openSendAttempt, markSendSent, markSendFailed, type DispatchAuthorization } from "./outbound-send-log";
 import { terminalizeSequenceEnrollment } from "./sequence-terminalization";
@@ -1368,16 +1368,24 @@ export async function processSequenceEnrollments(
             // that domain silently sends from the wrong address and wrong brand.
             const isColdEmail = isColdOutreachSequence(sequence);
             const useGmailForThisStep = !isColdEmail && (await isGmailOAuthConnected()) && !!contact?.email;
-            const useSmtpForThisStep  = isColdEmail && isSmtpConfigured() && !!contact?.email;
+            // Existing Phase 7 experiments certify SendGrid feedback for the legacy sender.
+            // A different sender cannot participate under the old experiment design.
+            const phase7SenderChanging = !!phase7Experiment && sfpContext.agentEmail !== resolvePolicy("cold_outreach").replyTo;
+            const needsSfpColdSmtp = (sfpLaunchStep || canonicalReleaseAdmitted) && (!phase7Experiment || phase7SenderChanging);
+            const smtpConfigured = needsSfpColdSmtp ? isSfpColdSmtpConfigured() : isSmtpConfigured();
+            const useSmtpForThisStep = isColdEmail && smtpConfigured && !!contact?.email;
 
             // SFP launch sends have exactly one certified transport (SMTP, which
             // carries the signed List-Unsubscribe headers). If it is unavailable the
             // step is deferred; it never silently falls back to GHL.
-            if (sfpLaunchStep && !useSmtpForThisStep) {
+            if ((sfpLaunchStep || canonicalReleaseAdmitted) && (!useSmtpForThisStep || phase7SenderChanging)) {
               await storage.createAuditLog({
                 action: "sequence_step_deferred_transport_unavailable",
                 entityType: "contact", entityId: enrollment.contactId ?? 0, actorType: "system",
-                details: { enrollmentId: enrollment.id, sequenceId: sequence.id, stepOrder: step.stepOrder, reason: "SFP_SMTP_TRANSPORT_REQUIRED", smtpConfigured: isSmtpConfigured() },
+                details: {
+                  enrollmentId: enrollment.id, sequenceId: sequence.id, stepOrder: step.stepOrder, smtpConfigured,
+                  reason: phase7SenderChanging ? "CRO07_SENDGRID_FEEDBACK_REQUIRED" : "SFP_SMTP_TRANSPORT_REQUIRED",
+                },
               });
               await storage.updateSequenceEnrollment(enrollment.id, { nextActionAt: new Date(Date.now() + 15 * 60 * 1000) });
               processed++; stepExecuted = false; break;
@@ -1765,21 +1773,22 @@ export async function processSequenceEnrollments(
                   const token = generateUnsubscribeToken(enrollment.contactId);
                   const unsubscribeUrl = `${appUrlForToken}/unsubscribe?t=${encodeURIComponent(token)}`;
                   if (!await authorizeClaimedEmailDispatch()) { processed++; continue; }
-                  const result = await sendSmtpEmail({
+                  const sendSequenceEmail = needsSfpColdSmtp ? sendSfpColdSmtpEmail : sendSmtpEmail;
+                  const result = await sendSequenceEmail({
                     to: deliveryEmailTo,
                     subject: deliverySubject,
                     html: emailBody,
                     category: "cold_outreach",
                     contactId: enrollment.contactId,
                     unsubscribeUrl,
-                    unsubscribeMailto: "Scott@mail.libertybancard.com",
-                    ...(phase7Experiment?{phase7Attempt:{idempotencyKey:emailIdemKey}}:{}),
+                    unsubscribeMailto: needsSfpColdSmtp ? sfpContext.agentEmail : resolvePolicy("cold_outreach").replyTo,
+                    ...(phase7Experiment ? { phase7Attempt: { idempotencyKey: emailIdemKey } } : {}),
                   });
                   if (!result.success) {
                     if (canonicalCapacityPath) canonicalSmtpOutcome = result.outcome === "unsent" ? "unsent" : "uncertain";
                     throw new Error(result.error || "SMTP send failed");
                   }
-                  await markSendSent({ idempotencyKey: emailIdemKey, providerMessageId: result.messageId, fromAddress: "Scott@mail.libertybancard.com" });
+                  await markSendSent({ idempotencyKey: emailIdemKey, providerMessageId: result.messageId, fromAddress: result.fromAddress });
                 } else {
                   // GHL: cold outreach from Scott@mail.libertybancard.com
                   // When test intercept is active, fall back to SMTP to the redirect address

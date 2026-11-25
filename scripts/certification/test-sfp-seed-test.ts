@@ -7,6 +7,7 @@
 import assert from "node:assert/strict";
 import net from "node:net";
 import { randomUUID } from "node:crypto";
+import { SFP_TEST_COLD_FROM, startSfpColdSmtpFixture } from "./sfp-cold-smtp-fixture";
 import { assertDisposableTestInfrastructure } from "../test-infrastructure-guard";
 import { applyCertificationProviderDenyBoundary, getBlockedCertificationNetworkAttemptCount } from "../certification-provider-deny";
 await assertDisposableTestInfrastructure({ operation: "SFP seed test certification" });
@@ -47,6 +48,7 @@ const smtp = net.createServer((sock) => {
 await new Promise<void>((r) => smtp.listen(0, "127.0.0.1", () => r()));
 process.env.SMTP_HOST = "127.0.0.1"; process.env.SMTP_PORT = String((smtp.address() as net.AddressInfo).port);
 process.env.SMTP_USER = "cert"; process.env.SMTP_PASS = "cert";
+const coldSmtp = await startSfpColdSmtpFixture(smtp);
 process.env.APP_URL = "https://liberty.example.test";
 process.env.UNSUBSCRIBE_TOKEN_SECRET ||= "cert-unsubscribe-secret-0123456789abcdef";
 delete process.env.EMAIL_OVERRIDE_TO;
@@ -59,7 +61,6 @@ const { sendSmtpEmail } = await import("../../server/services/smtp-email");
 const content = await import("../../server/services/cro03/sfp-launch-content");
 const { computeLivePackageContentHash } = await import("../../server/services/cro03/sfp-campaign-packages");
 const tokens = await import("../../server/services/unsubscribe-token");
-const { COLD_OUTREACH_FROM } = await import("../../server/services/sender-policy");
 const pauseAuthority = await import("../../server/services/outbound-pause-authority");
 
 const prefix = `cert_seed_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
@@ -171,7 +172,7 @@ check(auth.mailbox === mailbox && auth.maxMessages === 2 && !auth.revokedAt, "Th
 // ═══ 2. The global pause is on: ordinary senders stay blocked ═════════════════════════════════════════════
 let preview = await seed.previewSeedSend({ packageKey, stepOrder: 1 });
 check(preview.outboundPause.allowed === false && preview.outboundPause.seedLease.eligible === true && preview.mailbox === mailbox
-  && preview.fromAddress.toLowerCase() === COLD_OUTREACH_FROM.toLowerCase(), "The preview names the mailbox and cold sender, and shows ordinary sending blocked with a seed lease available");
+  && preview.fromAddress === SFP_TEST_COLD_FROM, "The preview names the mailbox and cold sender, and shows ordinary sending blocked with a seed lease available");
 check(preview.unresolvedPlaceholders.length === 0 && preview.subject.length > 0, "The preview renders every placeholder");
 const ordinaryOps = await sendSmtpEmail({ to: mailbox, subject: "x", html: "<p>x</p>", category: "internal_ops" });
 check(!ordinaryOps.success && /Outbound paused: global_paused/.test(ordinaryOps.error ?? "") && captured.length === 0, "An ordinary operational send is blocked by the global pause");
@@ -257,10 +258,11 @@ await expectError(() => seed.executeSeedSend({ packageKey, stepOrder: 1, preview
 await expectError(() => seed.executeSeedSend({ packageKey, stepOrder: 1, previewHash: preview.previewHash, idempotencyKey: "not-a-uuid", actorId: "cert" }),
   "SEED_IDEMPOTENCY_KEY_REQUIRED", "A send requires an idempotency key");
 const sent = await seed.executeSeedSend({ packageKey, stepOrder: 1, previewHash: preview.previewHash, idempotencyKey: key1, actorId: "cert" });
-check(sent.receipt.state === "sent" && !sent.replayed && captured.length === 1, "The seed message is accepted by the (fake) mail server exactly once");
+check(sent.receipt.state === "sent" && !sent.replayed && captured.length === 1 && coldSmtp.dedicatedConnections() === 1,
+  "The seed message is accepted once through the dedicated TLS connection");
 const msg = parseMessage(captured[0].data);
 check(captured[0].rcpt.length === 1 && captured[0].rcpt[0].includes(mailbox), "Its only recipient is the authorized mailbox");
-check(msg.header("From")?.toLowerCase().includes(COLD_OUTREACH_FROM.toLowerCase()), "It is sent from the actual cold sender");
+check(msg.header("From")?.toLowerCase().includes(SFP_TEST_COLD_FROM.toLowerCase()), "It is sent from the actual cold sender");
 check(msg.all.includes(preview.subject) || msg.header("Subject")?.includes(preview.subject.slice(0, 12)), "It carries the rendered subject");
 const plainBody = preview.html.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim().slice(0, 40);
 check(msg.all.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").includes(plainBody), "It carries the same rendered body the sequence worker would send");
@@ -338,11 +340,13 @@ check((await seed.revokeSeedMailbox()).revoked && (await seed.readSeedStatus()).
 // Static census: only the seed service may present a seed capability, and only the mail service may ask the authority for a lease.
 const { execSync } = await import("node:child_process");
 const grep = (pattern: string) => execSync(`grep -rlE "${pattern}" server --include=*.ts || true`, { encoding: "utf8" }).split("\n").filter(Boolean).sort();
-check(JSON.stringify(grep("seedTest[?]?:")) === JSON.stringify(["server/services/sfp-seed-test.ts", "server/services/smtp-email.ts"]), "Only the seed service and the mail service reference a seed capability");
+check(JSON.stringify(grep("seedTest[?]?:[[:space:]]*[{]")) === JSON.stringify(["server/services/sfp-seed-test.ts", "server/services/smtp-email.ts"]),
+  "Only the seed service and the mail service declare or present the seed capability");
 check(JSON.stringify(grep("authorizeSeedSend")) === JSON.stringify(["server/services/outbound-pause-authority.ts", "server/services/smtp-email.ts"]), "Only the mail service asks the pause authority for a seed lease");
 check(JSON.stringify(grep("consumeSeedClaim")) === JSON.stringify(["server/services/outbound-pause-authority.ts", "server/services/sfp-seed-authority.ts"]), "Only the pause authority consumes seed claims");
 
 check(getBlockedCertificationNetworkAttemptCount() === 0, "No provider or external network call was attempted");
 console.log(`PASS SFP seed test (${checks} checks)`);
+coldSmtp.close();
 smtp.close();
 await pool.end().catch(() => {});

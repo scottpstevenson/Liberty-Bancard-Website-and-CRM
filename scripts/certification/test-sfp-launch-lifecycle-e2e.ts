@@ -9,6 +9,7 @@
 import assert from "node:assert/strict";
 import net from "node:net";
 import { randomUUID } from "node:crypto";
+import { SFP_TEST_COLD_DOMAIN, SFP_TEST_COLD_FROM, startSfpColdSmtpFixture } from "./sfp-cold-smtp-fixture";
 import { assertDisposableTestInfrastructure } from "../test-infrastructure-guard";
 import { applyCertificationProviderDenyBoundary,
   getBlockedCertificationNetworkAttemptCount } from "../certification-provider-deny";
@@ -51,6 +52,7 @@ const smtp = net.createServer((sock) => {
 await new Promise<void>((r) => smtp.listen(0, "127.0.0.1", () => r()));
 process.env.SMTP_HOST = "127.0.0.1"; process.env.SMTP_PORT = String((smtp.address() as net.AddressInfo).port);
 process.env.SMTP_USER = "cert"; process.env.SMTP_PASS = "cert";
+const coldSmtp = await startSfpColdSmtpFixture(smtp);
 process.env.APP_URL = "https://liberty.example.test";
 process.env.UNSUBSCRIBE_TOKEN_SECRET ||= "cert-unsubscribe-secret-0123456789abcdef";
 
@@ -64,7 +66,6 @@ const { previewContactBusinessSystemLinks, applyContactBusinessSystemLink } = aw
 const content = await import("../../server/services/cro03/sfp-launch-content");
 const { processSequenceEnrollments } = await import("../../server/services/sequence-worker");
 const { hashEmailToken } = await import("../../server/services/provider-readiness-control");
-const { COLD_OUTREACH_FROM } = await import("../../server/services/sender-policy");
 
 const prefix = `cert_lifecycle_${randomUUID().replaceAll("-", "").slice(0, 16)}`;
 const actor = { role: "admin" as const, actorId: `system:${prefix}`, email: null };
@@ -82,9 +83,9 @@ async function openPause() {
 }
 async function setSender(dailyLimit: number, sentToday = 0) {
   const updated = await pool.query(`UPDATE sending_identities SET is_active=TRUE, warmup_status='warm', daily_limit=$2, sent_today=$3
-    WHERE lower(email_address)=lower($1)`, [COLD_OUTREACH_FROM, dailyLimit, sentToday]);
+    WHERE lower(email_address)=lower($1)`, [SFP_TEST_COLD_FROM, dailyLimit, sentToday]);
   if ((updated.rowCount ?? 0) === 0) await pool.query(`INSERT INTO sending_identities (label,domain,email_address,is_active,warmup_status,daily_limit,sent_today)
-    VALUES('cert','mail.libertybancard.com',$1,TRUE,'warm',$2,$3)`, [COLD_OUTREACH_FROM, dailyLimit, sentToday]);
+    VALUES('cert',$4,$1,TRUE,'warm',$2,$3)`, [SFP_TEST_COLD_FROM, dailyLimit, sentToday, SFP_TEST_COLD_DOMAIN]);
 }
 async function programAndSequence(tag: string) {
   const programId = randomUUID();
@@ -416,7 +417,7 @@ try {
   check(seedPreview.packages.length > 0 && seedPreview.packages.every(p => p.steps.length > 0), "Seed rendering covers every current package with its email steps");
   check(seedPreview.packages.every(p => p.steps.every(s => s.unresolvedPlaceholders.length === 0 && s.subject.length > 0 && s.html.length > 0)),
     "Seed rendering leaves no raw template placeholders");
-  check(seedPreview.fromAddress.toLowerCase() === "scott@mail.libertybancard.com", "Seed rendering uses the cold-outreach sender identity");
+  check(seedPreview.fromAddress === SFP_TEST_COLD_FROM, "Seed rendering uses the dedicated cold-outreach sender identity");
   check(seedPreview.packages.every(p => p.steps.every(s => s.html.includes("Seed Preview Business"))), "Seed rendering uses the fictional recipient, never a real prospect");
   check((await seedCounts()).join() === seedBefore.join() && captured.length === sentBeforeSeed, "Seed rendering wrote nothing and sent nothing");
 
@@ -610,6 +611,7 @@ try {
   check(getBlockedCertificationNetworkAttemptCount() === 0, "No provider or external network call was attempted");
   console.log(`PASS SFP launch lifecycle (${checks} checks)`);
 } finally {
+  coldSmtp.close();
   await pool.query("DELETE FROM system_settings WHERE key=$1", [release.CANONICAL_RELEASE_CONTROL_KEY]).catch(() => {});
   smtp.close();
   await pool.end().catch(() => {});

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import net from "node:net";
 import { randomUUID } from "node:crypto";
+import { SFP_TEST_COLD_DOMAIN, SFP_TEST_COLD_FROM, startSfpColdSmtpFixture } from "./sfp-cold-smtp-fixture";
 import { assertDisposableTestInfrastructure } from "../test-infrastructure-guard";
 import { applyCertificationProviderDenyBoundary,
   getBlockedCertificationNetworkAttemptCount } from "../certification-provider-deny";
@@ -41,6 +42,7 @@ await new Promise<void>((r) => smtp.listen(0, "127.0.0.1", () => r()));
 const smtpPort = (smtp.address() as net.AddressInfo).port;
 process.env.SMTP_HOST = "127.0.0.1"; process.env.SMTP_PORT = String(smtpPort);
 process.env.SMTP_USER = "cert"; process.env.SMTP_PASS = "cert";
+const coldSmtp = await startSfpColdSmtpFixture(smtp);
 process.env.APP_URL = "https://liberty.example.test";
 process.env.UNSUBSCRIBE_TOKEN_SECRET ||= "cert-unsubscribe-secret-0123456789abcdef";
 
@@ -66,6 +68,13 @@ try {
   await pool.query(`INSERT INTO outbound_pause_control(state,reason,epoch,actor) VALUES('unpaused','cert',1,'cert')`);
   const { invalidatePauseStateCache } = await import("../../server/services/outbound-pause-authority");
   invalidatePauseStateCache();
+  const { sendSmtpEmail } = await import("../../server/services/smtp-email");
+  const staffAlert = await sendSmtpEmail({
+    category: "internal_ops", to: "staff@example.test", subject: "Staff alert", html: "<p>Alert</p>",
+  });
+  check(staffAlert.success && captured.length === 1 && coldSmtp.dedicatedConnections() === 0,
+    "A staff message still uses the shared SMTP endpoint with the dedicated mailbox configured");
+  captured.length = 0;
   await storage.setSystemSetting("emailChannelPaused", false);
   await storage.setSystemSetting("coldEmailChannelPaused", false);
   await storage.setSystemSetting("compliance_mailing_address", "100 Test Way, Miami, FL 33130");
@@ -114,10 +123,9 @@ try {
   check(prepared.enrollmentId != null, "Preparation owns a paused membership");
   const enrollmentId = Number(prepared.enrollmentId);
   // The real selector and real capacity definition: one warm sender able to send five a day.
-  const { COLD_OUTREACH_FROM } = await import("../../server/services/sender-policy");
-  await pool.query(`DELETE FROM sending_identities WHERE lower(email_address)=lower($1)`, [COLD_OUTREACH_FROM]);
+  await pool.query(`DELETE FROM sending_identities WHERE lower(email_address)=lower($1)`, [SFP_TEST_COLD_FROM]);
   await pool.query(`INSERT INTO sending_identities (label,domain,email_address,is_active,warmup_status,daily_limit,sent_today)
-    VALUES('cert','mail.libertybancard.com',$1,TRUE,'warm',5,0)`, [COLD_OUTREACH_FROM]);
+    VALUES('cert',$1,$2,TRUE,'warm',5,0)`, [SFP_TEST_COLD_DOMAIN, SFP_TEST_COLD_FROM]);
   const enrollment = async () => one("SELECT * FROM sequence_enrollments WHERE id=$1", [enrollmentId]);
 
   // Not released: nothing sends even with the legacy flag off and release-only mode on.
@@ -130,13 +138,23 @@ try {
   await pool.query("UPDATE sequence_enrollments SET next_action_at=NOW()-interval '1 minute' WHERE id=$1", [enrollmentId]);
 
   // Transport rule: SMTP unavailable -> deferred, never a silent fallback.
-  const savedHost = process.env.SMTP_HOST; delete process.env.SMTP_HOST;
+  const savedHost = process.env.SFP_COLD_SMTP_HOST;
+  delete process.env.SFP_COLD_SMTP_HOST;
   await processSequenceEnrollments({ canonicalReleaseOnly: true });
-  process.env.SMTP_HOST = savedHost;
+  process.env.SFP_COLD_SMTP_HOST = savedHost;
   let e = await enrollment();
-  check(captured.length === 0 && Number(e.current_step) === 0 && e.status === "active", "Without SMTP the step is deferred, not sent through another transport, not completed");
+  check(captured.length === 0 && Number(e.current_step) === 0 && e.status === "active",
+    "Without dedicated SMTP the step defers even though shared SMTP is available");
   check(Number((await one(`SELECT count(*) c FROM audit_logs WHERE action='sequence_step_deferred_transport_unavailable' AND entity_id=$1`, [contact.id])).c) >= 1,
     "The deferral is audited");
+  await pool.query("UPDATE sequence_enrollments SET next_action_at=NOW()-interval '1 minute' WHERE id=$1", [enrollmentId]);
+
+  process.env.SFP_COLD_SMTP_USER = "wrong@example.test";
+  await processSequenceEnrollments({ canonicalReleaseOnly: true });
+  process.env.SFP_COLD_SMTP_USER = SFP_TEST_COLD_FROM;
+  e = await enrollment();
+  check(captured.length === 0 && Number(e.current_step) === 0 && e.status === "active",
+    "A mismatched dedicated mailbox defers without attempting delivery through either SMTP endpoint");
   await pool.query("UPDATE sequence_enrollments SET next_action_at=NOW()-interval '1 minute' WHERE id=$1", [enrollmentId]);
 
   // Empty sequence: the membership is deferred, never completed as a successful outreach.
@@ -153,13 +171,13 @@ try {
   // Step 1 send.
   await processSequenceEnrollments({ canonicalReleaseOnly: true });
   e = await enrollment();
-  check(captured.length === 1, "Released step 1 is delivered once through the SMTP transport");
+  check(captured.length === 1 && coldSmtp.dedicatedConnections() === 1, "Released step 1 is delivered once through the dedicated TLS connection");
   const m1 = captured[0].data;
-  check(/^From: .*Scott@mail\.libertybancard\.com/mi.test(m1) && /^Reply-To: .*Scott@mail\.libertybancard\.com/mi.test(m1), "Sender policy supplies From and Reply-To");
+  check(/^From: .*Scott@liberty-outreach\.test/mi.test(m1) && /^Reply-To: .*Scott@liberty-outreach\.test/mi.test(m1), "Sender policy supplies the dedicated From and Reply-To");
   check(/List-Unsubscribe:\s*<https:\/\/liberty\.example\.test\/unsubscribe\?t=/i.test(m1) && /List-Unsubscribe-Post: List-Unsubscribe=One-Click/i.test(m1), "Signed List-Unsubscribe and one-click headers are present");
   const decoded = m1.replace(/=\r\n/g, "").replace(/=3D/g, "=");
   check(decoded.includes("Hi Maria,") && !decoded.includes("upload-statement") && /interested in a free statement review/.test(decoded), "Touch 1 is rendered reply-first with the person greeting and no upload CTA");
-  check(/^From: "?Scott Stevenson"? <Scott@mail\.libertybancard\.com>/mi.test(m1), "From carries the Scott Stevenson display name");
+  check(/^From: "?Scott Stevenson"? <Scott@liberty-outreach\.test>/mi.test(m1), "From carries the Scott Stevenson display name");
   check((decoded.match(/data-sfp-signature/g) ?? []).length === 1 && (decoded.match(/<img\b/g) ?? []).length === 1 && decoded.includes('alt="Liberty Bancard logo"')
     && decoded.indexOf("<img") < decoded.indexOf("data-can-spam-footer"), "One signature, one logo with alt text, above the single transport footer");
   check(!/\{\{|undefined/.test(decoded), "No unresolved token ships");
@@ -202,6 +220,7 @@ try {
   check(getBlockedCertificationNetworkAttemptCount() === 0, "No provider or external network call was attempted");
   console.log(`PASS SFP launch runner end-to-end (${checks} checks)`);
 } finally {
+  coldSmtp.close();
   await pool.query("DELETE FROM system_settings WHERE key=$1", [release.CANONICAL_RELEASE_CONTROL_KEY]).catch(() => {});
   smtp.close();
   await pool.end().catch(() => {});

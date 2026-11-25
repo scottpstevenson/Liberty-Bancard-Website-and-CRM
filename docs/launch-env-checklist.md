@@ -107,6 +107,19 @@ Used when GHL is not configured or a contact has no GHL contact ID. All four fie
 | `SMTP_PASS` | Optional | SMTP password or app-specific password. |
 | `SMTP_FROM` | Optional | Override From address. Defaults to `SMTP_USER` if unset. |
 
+### SFP cold outreach SMTP
+
+The SFP sequence worker and the authorized staff seed test use a dedicated SMTP mailbox. Incomplete settings block those sends. Website receipts, staff alerts and other shared SMTP callers continue to use the settings above.
+
+| Variable | Description |
+|---|---|
+| `SFP_COLD_SMTP_HOST` | SMTP hostname supplied by the cold outreach provider. |
+| `SFP_COLD_SMTP_PORT` | Defaults to 465 for TLS. Port 587 requires STARTTLS. |
+| `SFP_COLD_SMTP_USER` | Provisioned Scott mailbox on a separate Liberty-owned sending domain. This address sets From, Reply-To and the SFP sending identity. |
+| `SFP_COLD_SMTP_PASS` | Dedicated mailbox password. Store as a deployment secret. |
+
+Connect a separate root domain in Mailforge. Keep the existing Liberty website and mail DNS in place. Register the identical mailbox in CRM Sending Identities with its own daily limit. Use the existing staff seed test to verify the mailbox while outbound is paused. Before releasing prospect sequences, confirm that replies, delayed bounces and complaints reach Liberty and trigger the expected sequence or suppression action. Phase 7 experiments require their existing SendGrid feedback path and defer when this sender changes.
+
 ---
 
 ## AI / OpenAI

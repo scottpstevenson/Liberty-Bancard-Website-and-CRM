@@ -13,7 +13,7 @@
  * Days roll over on the UTC date, so a new day is a new counter row.
  */
 import { pool } from "../db";
-import { COLD_OUTREACH_FROM } from "./sender-policy";
+import { resolveSfpColdSenderPolicy } from "./sender-policy";
 import { isUsableSenderIdentity } from "./sdr/sender-identity-state";
 
 export const SENDER_COUNTER_CHANNEL = "email";
@@ -30,7 +30,7 @@ export async function readSelectedSender(): Promise<SelectedSender | null> {
   const r = await pool.query(
     `SELECT id, email_address AS "emailAddress", is_active AS "isActive", warmup_status AS "warmupStatus",
             COALESCE(daily_limit,0)::int AS "dailyLimit", (CASE WHEN counter_date < (now() AT TIME ZONE 'America/New_York')::date THEN 0 ELSE COALESCE(sent_today,0) END)::int AS "sentToday"
-       FROM sending_identities WHERE lower(email_address)=lower($1) ORDER BY id LIMIT 1`, [COLD_OUTREACH_FROM]);
+       FROM sending_identities WHERE lower(email_address)=lower($1) ORDER BY id LIMIT 1`, [resolveSfpColdSenderPolicy().from]);
   const row = r.rows[0];
   if (!row) return null;
   return { ...row, usable: isUsableSenderIdentity(row) };

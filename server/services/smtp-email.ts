@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import nodemailer from "nodemailer";
-import { resolvePolicy, assertNotProhibitedSync, isProhibitedAddress } from "./sender-policy";
+import { readSfpColdMailbox, resolvePolicy, resolveSfpColdSenderPolicy, assertNotProhibitedSync, isProhibitedAddress } from "./sender-policy";
 import type { MessageCategory } from "./sender-policy";
 import { getCommercialComplianceConfig, renderEmailPartsForPurpose } from "./can-spam-footer";
 import type { CommercialComplianceLoader } from "./can-spam-footer";
@@ -62,6 +62,21 @@ export function isSmtpConfigured(): boolean {
   return !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 }
 
+function readSfpColdSmtpConfig() {
+  const host = process.env.SFP_COLD_SMTP_HOST?.trim();
+  const port = (process.env.SFP_COLD_SMTP_PORT ?? "465").trim();
+  const user = readSfpColdMailbox();
+  const pass = process.env.SFP_COLD_SMTP_PASS;
+  if (!host || !user || !pass?.trim() || (port !== "465" && port !== "587")) return null;
+  if (host.toLowerCase() === process.env.SMTP_HOST?.trim().toLowerCase() &&
+      user.toLowerCase() === process.env.SMTP_USER?.trim().toLowerCase()) return null;
+  return { host, port: Number(port), user, pass };
+}
+
+export function isSfpColdSmtpConfigured(): boolean {
+  return readSfpColdSmtpConfig() !== null;
+}
+
 /**
  * #1249 — Probe the SMTP connection with a live verify() call (10s timeout).
  * Returns true when the transporter can reach the server, false otherwise.
@@ -91,7 +106,7 @@ export async function verifySmtpLive(): Promise<boolean> {
  *    have accepted it, so it must never be treated as unsent or retried automatically.
  */
 export type SmtpSendOutcome = "sent" | "unsent" | "uncertain";
-export interface SmtpSendResult { success: boolean; messageId?: string; error?: string; outcome?: SmtpSendOutcome }
+export interface SmtpSendResult { success: boolean; messageId?: string; fromAddress?: string; error?: string; outcome?: SmtpSendOutcome }
 
 /** Conservative: only errors that prove the message was not accepted are "unsent". */
 export function classifySmtpFailure(err: any): SmtpSendOutcome {
@@ -116,7 +131,17 @@ export function classifySmtpFailure(err: any): SmtpSendOutcome {
 
 /** Public SMTP entry point. Failures carry an outcome so callers can tell "not sent" from "unknown". */
 export async function sendSmtpEmail(params: Parameters<typeof sendSmtpEmailCore>[0]): Promise<SmtpSendResult> {
-  const result = await sendSmtpEmailCore(params);
+  return withSmtpOutcome(await sendSmtpEmailCore(params));
+}
+
+/** The released SFP sequence worker is the only caller of this entry point. */
+export async function sendSfpColdSmtpEmail(params: Parameters<typeof sendSmtpEmailCore>[0]): Promise<SmtpSendResult> {
+  return withSmtpOutcome(await sendSmtpEmailCore({
+    ...params, category: "cold_outreach", commercialPurpose: "marketing_outreach",
+  }, true));
+}
+
+function withSmtpOutcome(result: SmtpSendResult): SmtpSendResult {
   if (result.success) return { ...result, outcome: "sent" };
   return { ...result, outcome: result.outcome ?? "unsent" };
 }
@@ -184,7 +209,7 @@ async function sendSmtpEmailCore(params: {
   /** Fixed-recipient staff intake owner only; verified against its durable claim at the pause boundary. */
   teamIntakeAlert?: import("./team-intake-alerts").TeamIntakeClaim;
   phase7Attempt?: { idempotencyKey: string };
-}): Promise<SmtpSendResult> {
+}, useSfpColdTransport = false): Promise<SmtpSendResult> {
   // CRO-03C initial-batch continuations are evidence-only. This is a canonical
   // SMTP boundary, so an inherited fence records and terminalizes the attempt.
   await denyCro03cForbiddenEffect("smtp_email");
@@ -303,7 +328,11 @@ async function sendSmtpEmailCore(params: {
         if(!final.ok)return {success:false,error:final.error,outcome:"unsent"};
         if(!await recheckSeedLeaseEpoch(decision.epoch))return {success:false,error:"TEAM_INTAKE_EPOCH_CHANGED",outcome:"unsent"};
       }
-      return await _sendSmtpEmailInner({ ...params, html: rendered.html, text: rendered.text }, rendered.complianceConfig);
+      return await _sendSmtpEmailInner(
+        { ...params, html: rendered.html, text: rendered.text },
+        rendered.complianceConfig,
+        useSfpColdTransport || Boolean(seedLoader),
+      );
     } finally {
       deregisterInflight(token);
     }
@@ -328,17 +357,12 @@ async function _sendSmtpEmailInner(params: {
   commercialPurpose?: "marketing_outreach" | "transactional_response";
   inboundAck?: { effectId: string; attemptToken: string };
   phase7Attempt?: { idempotencyKey: string };
-}, complianceConfig?: Awaited<ReturnType<typeof getCommercialComplianceConfig>>): Promise<SmtpSendResult> {
-  const transport = getTransporter();
-  if (!transport) {
-    return { success: false, error: "SMTP not configured (set SMTP_HOST, SMTP_USER, SMTP_PASS)" };
-  }
-
+}, complianceConfig: Awaited<ReturnType<typeof getCommercialComplianceConfig>> | undefined, useSfpColdTransport: boolean): Promise<SmtpSendResult> {
   let fromAddress: string;
   let replyToAddress: string | undefined;
 
   if (params.category) {
-    const policy = resolvePolicy(params.category);
+    const policy = useSfpColdTransport ? resolveSfpColdSenderPolicy() : resolvePolicy(params.category);
     fromAddress = policy.from;
     replyToAddress = policy.replyTo;
   } else {
@@ -361,6 +385,29 @@ async function _sendSmtpEmailInner(params: {
   } catch (prohibitErr: any) {
     console.error(`[SMTP] ${prohibitErr.message}`);
     return { success: false, error: prohibitErr.message };
+  }
+
+  let transport: SmtpTransporter | null;
+  if (useSfpColdTransport) {
+    if (params.phase7Attempt) return { success: false, error: "CRO07_SENDGRID_FEEDBACK_REQUIRED", outcome: "unsent" };
+    const config = readSfpColdSmtpConfig();
+    if (!config) return { success: false, error: "SFP_COLD_SMTP_CONFIGURATION_REQUIRED", outcome: "unsent" };
+    if (params.category !== "cold_outreach" || fromAddress.toLowerCase() !== config.user.toLowerCase()
+        || replyToAddress?.toLowerCase() !== config.user.toLowerCase()) {
+      return { success: false, error: "SFP_COLD_SMTP_SENDER_MISMATCH", outcome: "unsent" };
+    }
+    transport = nodemailer.createTransport({
+      host: config.host,
+      port: config.port,
+      secure: config.port === 465,
+      requireTLS: config.port === 587,
+      auth: { user: config.user, pass: config.pass },
+      disableFileAccess: true,
+      disableUrlAccess: true,
+    });
+  } else {
+    transport = getTransporter();
+    if (!transport) return { success: false, error: "SMTP not configured (set SMTP_HOST, SMTP_USER, SMTP_PASS)" };
   }
 
   const isCommercial = params.category === "cold_outreach" || params.commercialPurpose === "marketing_outreach";
@@ -414,7 +461,7 @@ async function _sendSmtpEmailInner(params: {
     });
 
     console.log(`[SMTP] Email sent to ${redactToken(effectiveTo)} from ${fromAddress} — messageId: ${info.messageId}`);
-    return { success: true, messageId: info.messageId, outcome: "sent" };
+    return { success: true, messageId: info.messageId, fromAddress, outcome: "sent" };
   } catch (err: any) {
     console.error(`[SMTP] Failed to send email to ${redactToken(params.to)}:`, err.message);
     return { success: false, error: err.message, outcome: classifySmtpFailure(err) };

@@ -211,6 +211,22 @@ export function resolvePolicy(category: MessageCategory): SenderPolicy {
   return policy;
 }
 
+/** A dedicated SFP mailbox must be separate from Liberty's existing mail domains. */
+export function readSfpColdMailbox(): string | null {
+  const address = process.env.SFP_COLD_SMTP_USER?.trim();
+  const match = address?.match(/^scott@([a-z\d](?:[a-z\d-]*[a-z\d])?(?:\.[a-z\d](?:[a-z\d-]*[a-z\d])?)+)$/i);
+  if (!address || !match) return null;
+  const domain = match[1].toLowerCase();
+  if (domain === "libertybancard.com" || domain.endsWith(".libertybancard.com")) return null;
+  return address;
+}
+
+export function resolveSfpColdSenderPolicy(): SenderPolicy {
+  const policy = resolvePolicy("cold_outreach");
+  const mailbox = readSfpColdMailbox();
+  return mailbox ? { ...policy, from: mailbox, replyTo: mailbox } : policy;
+}
+
 /**
  * Convenience helper — returns only the {from, replyTo} pair.
  */

@@ -3,7 +3,7 @@
  * seed message is rendered exactly as a real recipient's message would be.
  */
 import { renderTemplate, plainHtmlToEmailHtml } from "./message-render";
-import { resolvePolicy } from "./sender-policy";
+import { resolveSfpColdSenderPolicy } from "./sender-policy";
 import { SFP_LAUNCH_ALLOWED_HOSTS, applySfpLaunchPresentation } from "./cro03/sfp-launch-presentation";
 
 export interface SfpLaunchRecipientFacts {
@@ -11,7 +11,7 @@ export interface SfpLaunchRecipientFacts {
 }
 
 export function sfpLaunchRenderContext(contact: SfpLaunchRecipientFacts | null | undefined) {
-  const sender = resolvePolicy("cold_outreach");
+  const sender = resolveSfpColdSenderPolicy();
   return {
     firstName: contact?.firstName ?? null, lastName: contact?.lastName ?? null,
     companyName: contact?.companyName ?? null, email: contact?.email ?? null,

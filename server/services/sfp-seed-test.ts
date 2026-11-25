@@ -218,7 +218,7 @@ export async function executeSeedSend(input: { packageKey: string; stepOrder: nu
   const { sendSmtpEmail } = await import("./smtp-email");
   const result = await sendSmtpEmail({
     to: auth.mailbox, subject: message.subject, html: message.html, category: "cold_outreach",
-    unsubscribeMailto: "Scott@mail.libertybancard.com", seedTest: { receiptKey: key, occurrenceId },
+    unsubscribeMailto: message.fromAddress, seedTest: { receiptKey: key, occurrenceId },
   });
   const state = result.success ? "sent" : result.outcome === "unsent" ? "unsent" : "uncertain";
   const finished: SeedReceipt = { ...receipt, state, finishedAt: new Date().toISOString(),
