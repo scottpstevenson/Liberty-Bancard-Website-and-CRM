@@ -13,7 +13,7 @@ import { isGhlConfigured } from "./ghl";
 import { getEmailSignatureHtml, isColdOutreachSequence } from "./email-signatures";
 import type { SignatureType } from "./sender-policy";
 import { sanitizeFirstName } from "./contact-name-utils";
-import { resolvePolicy, NON_COLD_GMAIL_SENDER_CATEGORY, SFP_SALES_ADDRESS } from "./sender-policy";
+import { resolvePolicy, NON_COLD_GMAIL_SENDER_CATEGORY, isSfpSalesAddress } from "./sender-policy";
 import { sfpLaunchRenderContext, renderSfpLaunchSubject, renderSfpLaunchBodyHtml } from "./sfp-launch-render";
 import { SFP_LAUNCH_SEQUENCE_FAMILY_PREFIX } from "./cro03/sfp-launch-content";
 import { hashEmailToken } from "./provider-readiness-control";
@@ -1391,7 +1391,7 @@ export async function processSequenceEnrollments(
               processed++; stepExecuted = false; break;
             }
 
-            if (needsSfpColdSmtp && sfpContext.agentEmail === SFP_SALES_ADDRESS) {
+            if (needsSfpColdSmtp && isSfpSalesAddress(sfpContext.agentEmail)) {
               const { isSfpSalesReplyReaderReady } = await import("./sfp-sales-reply");
               if (!await isSfpSalesReplyReaderReady().catch(() => false)) {
                 await storage.createAuditLog({

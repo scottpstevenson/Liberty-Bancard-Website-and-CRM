@@ -44,7 +44,8 @@ const smtpPort = (smtp.address() as net.AddressInfo).port;
 process.env.SMTP_HOST = "127.0.0.1"; process.env.SMTP_PORT = String(smtpPort);
 process.env.SMTP_USER = "cert"; process.env.SMTP_PASS = "cert";
 const coldSmtp = await startSfpColdSmtpFixture(smtp);
-const { SFP_SALES_ADDRESS } = await import("../../server/services/sender-policy");
+const SFP_SALES_ADDRESS = "sales@meetlibertybancard.com";
+const SHARED_GMAIL_ACCOUNT = "scott@libertybancard.com";
 process.env.SFP_COLD_SMTP_FROM = SFP_SALES_ADDRESS;
 delete process.env.SFP_COLD_REPLY_GMAIL_ACCOUNT;
 process.env.APP_URL = "https://liberty.example.test";
@@ -130,7 +131,7 @@ try {
   // The real selector and real capacity definition: one warm sender able to send five a day.
   await pool.query(`DELETE FROM sending_identities WHERE lower(email_address)=lower($1)`, [SFP_SALES_ADDRESS]);
   await pool.query(`INSERT INTO sending_identities (label,domain,email_address,is_active,warmup_status,daily_limit,sent_today)
-    VALUES('cert',$1,$2,TRUE,'warm',5,0)`, ["libertybancard.com", SFP_SALES_ADDRESS]);
+    VALUES('cert',$1,$2,TRUE,'warm',5,0)`, ["meetlibertybancard.com", SFP_SALES_ADDRESS]);
   const enrollment = async () => one("SELECT * FROM sequence_enrollments WHERE id=$1", [enrollmentId]);
 
   // Not released: nothing sends even with the legacy flag off and release-only mode on.
@@ -178,8 +179,8 @@ try {
     WHERE action='sequence_step_deferred_transport_unavailable' AND entity_id=$1
       AND details->>'reason'='SFP_SALES_REPLY_READER_UNAVAILABLE'`, [contact.id])).c) === 1,
     "Sales SMTP defers until the configured reply reader is active");
-  process.env.SFP_COLD_REPLY_GMAIL_ACCOUNT = SFP_SALES_ADDRESS;
-  await storage.setSystemSetting("gmail_oauth_email", SFP_SALES_ADDRESS);
+  process.env.SFP_COLD_REPLY_GMAIL_ACCOUNT = SHARED_GMAIL_ACCOUNT;
+  await storage.setSystemSetting("gmail_oauth_email", SHARED_GMAIL_ACCOUNT);
   let gmailReplyHeaders: { name: string; value: string }[] = [];
   let historyId = 1000;
   let gmailMessageId = "cert-gmail-reply";
@@ -194,7 +195,7 @@ try {
       payload: { headers: gmailReplyHeaders },
     } }) },
   } };
-  const readerClient: ReaderDeps["getClient"] = async () => ({ ok: true, gmail, account: SFP_SALES_ADDRESS });
+  const readerClient: ReaderDeps["getClient"] = async () => ({ ok: true, gmail, account: SHARED_GMAIL_ACCOUNT });
   check((await openMailboxReader()).ok && (await pollMailboxOnce({ getClient: readerClient })).status === "initialized",
     "Gmail reader initializes through the normal poll");
   await pool.query("UPDATE sequence_enrollments SET next_action_at=NOW()-interval '1 minute' WHERE id=$1", [enrollmentId]);
@@ -204,11 +205,11 @@ try {
   e = await enrollment();
   check(captured.length === 1 && coldSmtp.dedicatedConnections() === 1, "Released step 1 is delivered once through the dedicated TLS connection");
   const m1 = captured[0].data;
-  check(/^From: .*sales@libertybancard\.com/mi.test(m1) && /^Reply-To: .*sales@libertybancard\.com/mi.test(m1), "Sales From and Reply-To are independent of the SMTP login");
+  check(/^From: .*sales@meetlibertybancard\.com/mi.test(m1) && /^Reply-To: .*sales@meetlibertybancard\.com/mi.test(m1), "Sales From and Reply-To are independent of the SMTP login");
   check(/List-Unsubscribe:\s*<https:\/\/liberty\.example\.test\/unsubscribe\?t=/i.test(m1) && /List-Unsubscribe-Post: List-Unsubscribe=One-Click/i.test(m1), "Signed List-Unsubscribe and one-click headers are present");
   const decoded = m1.replace(/=\r\n/g, "").replace(/=3D/g, "=");
   check(decoded.includes("Hi Maria,") && !decoded.includes("upload-statement") && /interested in a free statement review/.test(decoded), "Touch 1 is rendered reply-first with the person greeting and no upload CTA");
-  check(/^From: "?Liberty Bancard Sales"? <sales@libertybancard\.com>/mi.test(m1), "From carries the Liberty Bancard Sales display name");
+  check(/^From: "?Liberty Bancard Sales"? <sales@meetlibertybancard\.com>/mi.test(m1), "From carries the Liberty Bancard Sales display name");
   check((decoded.match(/data-sfp-signature/g) ?? []).length === 1 && (decoded.match(/<img\b/g) ?? []).length === 1 && decoded.includes('alt="Liberty Bancard logo"')
     && decoded.indexOf("<img") < decoded.indexOf("data-can-spam-footer"), "One signature, one logo with alt text, above the single transport footer");
   check(!/\{\{|undefined/.test(decoded), "No unresolved token ships");
@@ -232,6 +233,7 @@ try {
   assert(messageId, "SMTP message carries a Message-ID");
   const replyHeaders = [
     { name: "From", value: email }, { name: "To", value: SFP_SALES_ADDRESS },
+    { name: "Delivered-To", value: SHARED_GMAIL_ACCOUNT },
     { name: "Subject", value: "Interested in a statement review" },
     { name: "In-Reply-To", value: messageId },
   ];
@@ -240,10 +242,18 @@ try {
   check(autoReplyPoll.status === "polled" && Number((await one(`SELECT count(*) c FROM communication_events
     WHERE contact_id=$1 AND direction='inbound'`, [contact.id])).c) === 0,
     "An auto-reply is recorded as evidence without creating a reply event");
+  gmailMessageId = "cert-gmail-reply-wrong-recipient";
+  gmailReplyHeaders = replyHeaders.map((header) => header.name === "To"
+    ? { ...header, value: "sales@libertybancard.com" }
+    : header);
+  const wrongRecipientPoll = await pollMailboxOnce({ getClient: readerClient });
+  check(wrongRecipientPoll.status === "polled" && Number((await one(`SELECT count(*) c FROM communication_events
+    WHERE contact_id=$1 AND direction='inbound'`, [contact.id])).c) === 0,
+    "A reference to the SMTP send must also match the Sales address originally used");
   gmailMessageId = "cert-gmail-reply-human";
   gmailReplyHeaders = replyHeaders;
   const humanReplyPoll = await pollMailboxOnce({ getClient: readerClient });
-  check(humanReplyPoll.status === "polled" && humanReplyPoll.applied === 1, `A human reply to the actual wire Message-ID is applied (${JSON.stringify(humanReplyPoll)})`);
+  check(humanReplyPoll.status === "polled" && humanReplyPoll.applied === 1, `A forwarded human reply to the actual wire Message-ID is applied (${JSON.stringify(humanReplyPoll)})`);
   check((await pollMailboxOnce({ getClient: readerClient })).duplicates === 1, "Replaying the Gmail event is idempotent");
   check(Number((await one(`SELECT count(*) c FROM audit_logs
     WHERE action='email_inbound' AND entity_id=$1 AND details->>'subject'=$2`, [contact.id, "Interested in a statement review"])).c) === 1,

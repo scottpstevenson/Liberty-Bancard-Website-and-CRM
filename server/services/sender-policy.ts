@@ -54,7 +54,14 @@ export interface SenderPolicy {
 // ── Approved identities ───────────────────────────────────────────────────────
 
 export const COLD_OUTREACH_FROM = "Scott@mail.libertybancard.com";
-export const SFP_SALES_ADDRESS = "sales@libertybancard.com";
+const SFP_SALES_ADDRESSES: ReadonlySet<string> = new Set([
+  "sales@libertybancard.com",
+  "sales@meetlibertybancard.com",
+]);
+
+export function isSfpSalesAddress(address: string): boolean {
+  return SFP_SALES_ADDRESSES.has(address);
+}
 
 const POLICY_REGISTRY: Record<MessageCategory, SenderPolicy> = {
   cold_outreach: {
@@ -214,8 +221,9 @@ export function resolvePolicy(category: MessageCategory): SenderPolicy {
 
 /** Read the SFP sender separately from the relay's authentication username. */
 export function readSfpColdMailbox(): string | null {
-  if (process.env.SFP_COLD_SMTP_FROM !== undefined) {
-    return process.env.SFP_COLD_SMTP_FROM.trim().toLowerCase() === SFP_SALES_ADDRESS ? SFP_SALES_ADDRESS : null;
+  const configuredFrom = process.env.SFP_COLD_SMTP_FROM?.trim().toLowerCase();
+  if (configuredFrom !== undefined) {
+    return isSfpSalesAddress(configuredFrom) ? configuredFrom : null;
   }
   const address = process.env.SFP_COLD_SMTP_USER?.trim();
   const match = address?.match(/^scott@([a-z\d](?:[a-z\d-]*[a-z\d])?(?:\.[a-z\d](?:[a-z\d-]*[a-z\d])?)+)$/i);
@@ -233,7 +241,7 @@ export function resolveSfpColdSenderPolicy(): SenderPolicy {
     ...policy,
     from: mailbox,
     replyTo: mailbox,
-    displayName: mailbox === SFP_SALES_ADDRESS ? "Liberty Bancard Sales" : policy.displayName,
+    displayName: isSfpSalesAddress(mailbox) ? "Liberty Bancard Sales" : policy.displayName,
   };
 }
 

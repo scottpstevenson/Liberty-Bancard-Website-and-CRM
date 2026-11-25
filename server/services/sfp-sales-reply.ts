@@ -4,7 +4,7 @@ import { db } from "../db";
 import { recordInboundEventInTx } from "./communication-events";
 import { communicationContactLockKey } from "./communication-contact-lock";
 import { SFP_LAUNCH_SEQUENCE_FAMILY_PREFIX } from "./cro03/sfp-launch-content";
-import { SFP_SALES_ADDRESS } from "./sender-policy";
+import { isSfpSalesAddress } from "./sender-policy";
 import { classifyMailboxMessage, extractAddresses, type MailboxMessageHeaders } from "./website-email-contracts";
 
 function configuredReaderAccount(): string | undefined {
@@ -41,7 +41,8 @@ export async function recordSfpSalesReply(
 ): Promise<"applied" | "duplicate" | "ignored"> {
   const normalizedAccount = account.toLowerCase();
   if (normalizedAccount !== configuredReaderAccount() || !message.providerMessageId) return "ignored";
-  if (!message.recipientHeaders.some((header) => extractAddresses(header).includes(SFP_SALES_ADDRESS))) return "ignored";
+  const salesRecipients = [...new Set(message.recipientHeaders.flatMap(extractAddresses).filter(isSfpSalesAddress))];
+  if (!salesRecipients.length) return "ignored";
   const { receivedAt, headers } = message;
   if (!receivedAt || !Number.isFinite(receivedAt.getTime()) || receivedAt.getTime() > now.getTime() + 60_000) return "ignored";
   if (headers.labelIds.some((label) => ["SPAM", "TRASH", "DRAFT"].includes(label))) return "ignored";
@@ -58,7 +59,7 @@ export async function recordSfpSalesReply(
       ON enrollment.id = send.sequence_enrollment_id AND enrollment.contact_id = send.contact_id
     JOIN follow_up_sequences sequence ON sequence.id = send.sequence_id AND sequence.id = enrollment.sequence_id
     WHERE send.channel = 'email_smtp'
-      AND lower(send.from_address) = ${SFP_SALES_ADDRESS}
+      AND lower(send.from_address) IN (${sql.join(salesRecipients.map((address) => sql`${address}`), sql`, `)})
       AND lower(send.to_address) = ${classification.fromAddress}
       AND send.provider_message_id IN (${sql.join(messageIds.map((id) => sql`${id}`), sql`, `)})
       AND send.sent_at <= ${receivedAt}
