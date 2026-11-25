@@ -1,3 +1,5 @@
+import type { RequestHandler } from "express";
+
 /**
  * Canonical URL resolution for Liberty Bancard.
  *
@@ -59,6 +61,13 @@ export function getCanonicalUrl(): string {
 export function getCanonicalUrlInfo(): CanonicalUrlInfo {
   return resolve();
 }
+
+/** Redirect only the public www alias. Deployment probes use different hosts. */
+export const redirectLibertyWww: RequestHandler = (req, res, next) => {
+  if (req.hostname?.toLowerCase() !== "www.libertybancard.com") return next();
+  const path = req.originalUrl.startsWith("/") ? req.originalUrl : "/";
+  return res.redirect(308, `https://libertybancard.com${path}`);
+};
 
 /**
  * Build the CORS allowed-origins list.

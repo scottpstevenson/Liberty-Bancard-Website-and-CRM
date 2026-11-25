@@ -51,7 +51,7 @@ if (process.env.SENTRY_DSN) {
 
 // Build CORS origin allowlist from ALLOWED_ORIGINS env var (comma-separated).
 // Falls back to the production domain so the app is safe out of the box.
-import { getCorsOrigins } from "./lib/canonical-url";
+import { getCorsOrigins, redirectLibertyWww } from "./lib/canonical-url";
 import {
   createSecurityMiddleware,
   isDeniedCorsOriginError,
@@ -219,13 +219,6 @@ configureHttpServerTimeouts(httpServer);
 // constructs absolute URLs with the wrong hostname.
 app.set("trust proxy", 1);
 
-// Canonical-host redirect: intentionally removed.
-// Application-layer host redirects (301 → libertybancard.com) consistently
-// intercept Cloud Run's autoscale startup health probe — which uses an internal
-// *.a.run.app hostname that doesn't match any safe-list pattern — causing every
-// promote step to time out. Canonical host enforcement should be handled at the
-// CDN / DNS layer (e.g. a Replit custom-domain redirect rule), not in Express.
-
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
@@ -239,6 +232,7 @@ const { helmet: securityHeaders, cors: corsMiddleware } = createSecurityMiddlewa
   process.env.NODE_ENV === "production" ? "production" : "development",
 );
 app.use(securityHeaders);
+if (process.env.NODE_ENV === "production") app.use(redirectLibertyWww);
 app.use(corsMiddleware);
 // CORS failures are intentionally handled immediately after the CORS
 // middleware. The typed error has a fixed public message and never reflects

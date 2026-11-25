@@ -1,4 +1,4 @@
-import { libertyProductionTracking, LIBERTY_TRACKING } from "../shared/liberty-tracking-config";
+import { libertyProductionTracking, LIBERTY_LEGACY_GA4_MEASUREMENT_ID, LIBERTY_TRACKING } from "../shared/liberty-tracking-config";
 import { publicTrackingReadiness } from "../shared/public-tracking-readiness";
 import { lintRules } from "../server/services/message-copy-lint";
 import assert from "node:assert/strict";
@@ -46,6 +46,25 @@ try {
 
 // Bundle the actual two client entry points with public fixture IDs. Execute in a VM with network-free browser sinks.
 const bundle = await build({ stdin: { contents: 'export * from "./client/src/lib/tracking"; export * from "./client/src/lib/utm"; export { trackConversion as compatibilityConversion } from "./client/src/lib/analytics";', resolveDir: process.cwd() }, bundle: true, write: false, platform: "browser", format: "cjs", define: { "import.meta.env": JSON.stringify({ VITE_GA4_MEASUREMENT_ID: "G-FIXTURE123", VITE_GOOGLE_TAG_ID: "G-LOADER123", VITE_FB_PIXEL_ID: "123456789", VITE_GOOGLE_ADS_LEAD_CONVERSION: "AW-123456/fixture_label" }) } });
+{
+  const productionTracking = await build({
+    entryPoints: ["client/src/lib/tracking.ts"],
+    bundle: true, write: false, platform: "browser", format: "cjs",
+    define: { "import.meta.env": JSON.stringify(libertyProductionTracking({})) },
+  });
+  const commands: any[][] = [], scripts: any[] = [];
+  const browser = { URL, URLSearchParams, module: { exports: {} as any }, exports: {},
+    window: { location: new URL("https://libertybancard.com/about-contact"), gtag: (...args: any[]) => commands.push(args) },
+    document: { referrer: "", head: { appendChild: (script: any) => scripts.push(script) }, createElement: () => ({}) },
+  };
+  vm.runInNewContext(productionTracking.outputFiles[0].text, browser);
+  browser.module.exports.applyConsentPreferences({ analytics: true, marketing: true });
+  check(scripts.some(script => script.src === `https://www.googletagmanager.com/gtag/js?id=${LIBERTY_TRACKING.VITE_GOOGLE_TAG_ID}`)
+    && scripts.every(script => !script.src.includes(LIBERTY_LEGACY_GA4_MEASUREMENT_ID)), "Production loads the shared tag by its GT ID");
+  check(Reflect.get(browser.window, `ga-disable-${LIBERTY_LEGACY_GA4_MEASUREMENT_ID}`) === true
+    && commands.some(command => command[1] === "page_view" && command[2]?.send_to === LIBERTY_TRACKING.VITE_GA4_MEASUREMENT_ID),
+  "The legacy GA4 stream stays disabled and page views target the active stream");
+}
 const calls: any[][] = [], pixels: any[][] = [], scripts: any[] = [];
 const context: any = { URL, URLSearchParams, module: { exports: {} }, exports: {}, console, document: { head: { appendChild: (v: any) => scripts.push(v) }, createElement: () => ({}), getElementsByTagName: () => [] }, window: { location: { pathname: "/get-started" }, gtag: (...args: any[]) => calls.push(args), fbq: (...args: any[]) => pixels.push(args), dataLayer: [] } };
 vm.runInNewContext(bundle.outputFiles[0].text, context);

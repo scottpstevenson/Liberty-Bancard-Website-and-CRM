@@ -17,6 +17,7 @@ import {
 } from "../server/lib/security";
 import { serializeJsonLd } from "../shared/json-ld";
 import { ssrHtmlShell } from "../server/ssrShared";
+import { redirectLibertyWww } from "../server/lib/canonical-url";
 
 let failures = 0;
 
@@ -34,11 +35,13 @@ async function withSecurityFixture(
   run: (baseUrl: string) => Promise<void>,
 ): Promise<void> {
   const app = express();
+  app.set("trust proxy", 1);
   const { helmet, cors } = createSecurityMiddleware(
     ["https://allowed.example"],
     "production",
   );
   app.use(helmet);
+  app.use(redirectLibertyWww);
   app.use(cors);
   app.use((error: unknown, _req: Request, res: Response, next: NextFunction) => {
     if (!isDeniedCorsOriginError(error)) return next(error);
@@ -121,6 +124,20 @@ async function main(): Promise<void> {
 
   console.log("\n── 2. CORS behavior and security-header ordering ─────────────");
   await withSecurityFixture(async (baseUrl) => {
+    const testPath = "/upload-statement?utm_source=google&gclid=fixture-id";
+    const fromWww = await fetch(baseUrl + testPath, {
+      headers: { "X-Forwarded-Host": "www.libertybancard.com" },
+      redirect: "manual",
+    });
+    check(
+      fromWww.status === 308 && fromWww.headers.get("location") === `https://libertybancard.com${testPath}`,
+      "www redirects permanently with the path and attribution parameters intact",
+    );
+    for (const host of ["libertybancard.com", "deployment-health.a.run.app", "dev.libertybancard.com"]) {
+      const response = await fetch(baseUrl + testPath, { headers: { "X-Forwarded-Host": host }, redirect: "manual" });
+      check(response.status === 200, `${host} bypasses the www redirect`);
+    }
+
     const policy = async (path: string) => (await fetch(baseUrl + path)).headers.get("content-security-policy") ?? "";
     const adsHosts = ["www.googleadservices.com", "googleads.g.doubleclick.net", "pagead2.googlesyndication.com"];
     for (const path of ["/upload-statement", "/industries/auto-repair-payment-processing"]) {

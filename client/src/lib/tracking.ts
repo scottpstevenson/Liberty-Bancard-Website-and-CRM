@@ -1,5 +1,6 @@
 import { revokeAdsMeasurement, retryAdsMeasurementRevocation } from "./ads-measurement-consent";
 import { publicTrackingContext, safeReferrer, safeCampaignValue } from "@shared/public-tracking-context";
+import { LIBERTY_LEGACY_GA4_MEASUREMENT_ID, LIBERTY_TRACKING } from "@shared/liberty-tracking-config";
 
 declare global {
   interface Window {
@@ -54,7 +55,8 @@ let lastMarketingView = "";
 let previousPublicLocation = "";
 function currentContext() {
   // The verified production destinations must never receive local/dev acceptance traffic.
-  if (typeof window !== "undefined" && ["G-L2VK5474GD", "AW-17130296245/cKygCOvUjbwdELWnrug_"].some(id => id === GA_ID || id === ADS_DESTINATION)
+  if (typeof window !== "undefined"
+    && (GA_ID === LIBERTY_TRACKING.VITE_GA4_MEASUREMENT_ID || ADS_DESTINATION === LIBERTY_TRACKING.VITE_GOOGLE_ADS_LEAD_CONVERSION)
     && !["libertybancard.com", "www.libertybancard.com"].includes(window.location.hostname)) return null;
   return typeof window === "undefined" ? null : publicTrackingContext(window.location.pathname, window.location.search, window.location.origin);
 }
@@ -206,7 +208,10 @@ export function applyConsentPreferences(preferences: TrackingConsentPreferences)
   if (typeof window !== "undefined") {
     if (GA_ID) (window as any)[`ga-disable-${GA_ID}`] = !active || !analyticsConsent;
     // The serving tag ID can also name a separate GA4 stream. Only the selected stream may collect.
-    if (GA_ID && GOOGLE_TAG_ID && GOOGLE_TAG_ID !== GA_ID) (window as any)[`ga-disable-${GOOGLE_TAG_ID}`] = true;
+    if (GA_ID && GOOGLE_TAG_ID?.startsWith("G-") && GOOGLE_TAG_ID !== GA_ID) (window as any)[`ga-disable-${GOOGLE_TAG_ID}`] = true;
+    if (GA_ID === LIBERTY_TRACKING.VITE_GA4_MEASUREMENT_ID) {
+      (window as any)[`ga-disable-${LIBERTY_LEGACY_GA4_MEASUREMENT_ID}`] = true;
+    }
     window.gtag!("consent", "update", {
       analytics_storage: active && analyticsConsent ? "granted" : "denied",
       ad_storage: active && marketingConsent ? "granted" : "denied",
