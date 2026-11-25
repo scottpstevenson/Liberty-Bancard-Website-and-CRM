@@ -64,13 +64,15 @@ export function isSmtpConfigured(): boolean {
 
 function readSfpColdSmtpConfig() {
   const host = process.env.SFP_COLD_SMTP_HOST?.trim();
-  const port = (process.env.SFP_COLD_SMTP_PORT ?? "465").trim();
-  const user = readSfpColdMailbox();
+  const rawPort = (process.env.SFP_COLD_SMTP_PORT ?? "465").trim();
+  const port = Number(rawPort);
+  const from = readSfpColdMailbox();
+  const user = process.env.SFP_COLD_SMTP_USER?.trim();
   const pass = process.env.SFP_COLD_SMTP_PASS;
-  if (!host || !user || !pass?.trim() || (port !== "465" && port !== "587")) return null;
+  if (!host || !from || !user || !pass?.trim() || !/^\d{1,5}$/.test(rawPort) || port < 1 || port > 65535) return null;
   if (host.toLowerCase() === process.env.SMTP_HOST?.trim().toLowerCase() &&
       user.toLowerCase() === process.env.SMTP_USER?.trim().toLowerCase()) return null;
-  return { host, port: Number(port), user, pass };
+  return { host, port, user, pass, from };
 }
 
 export function isSfpColdSmtpConfigured(): boolean {
@@ -360,11 +362,13 @@ async function _sendSmtpEmailInner(params: {
 }, complianceConfig: Awaited<ReturnType<typeof getCommercialComplianceConfig>> | undefined, useSfpColdTransport: boolean): Promise<SmtpSendResult> {
   let fromAddress: string;
   let replyToAddress: string | undefined;
+  let displayName: string | undefined;
 
   if (params.category) {
     const policy = useSfpColdTransport ? resolveSfpColdSenderPolicy() : resolvePolicy(params.category);
     fromAddress = policy.from;
     replyToAddress = policy.replyTo;
+    if (params.category === "cold_outreach") displayName = policy.displayName;
   } else {
     // Legacy path — warn and fall back
     console.warn(
@@ -392,15 +396,15 @@ async function _sendSmtpEmailInner(params: {
     if (params.phase7Attempt) return { success: false, error: "CRO07_SENDGRID_FEEDBACK_REQUIRED", outcome: "unsent" };
     const config = readSfpColdSmtpConfig();
     if (!config) return { success: false, error: "SFP_COLD_SMTP_CONFIGURATION_REQUIRED", outcome: "unsent" };
-    if (params.category !== "cold_outreach" || fromAddress.toLowerCase() !== config.user.toLowerCase()
-        || replyToAddress?.toLowerCase() !== config.user.toLowerCase()) {
+    if (params.category !== "cold_outreach" || fromAddress.toLowerCase() !== config.from.toLowerCase()
+        || replyToAddress?.toLowerCase() !== config.from.toLowerCase()) {
       return { success: false, error: "SFP_COLD_SMTP_SENDER_MISMATCH", outcome: "unsent" };
     }
     transport = nodemailer.createTransport({
       host: config.host,
       port: config.port,
       secure: config.port === 465,
-      requireTLS: config.port === 587,
+      requireTLS: config.port !== 465,
       auth: { user: config.user, pass: config.pass },
       disableFileAccess: true,
       disableUrlAccess: true,
@@ -442,7 +446,7 @@ async function _sendSmtpEmailInner(params: {
     console.log(`[SMTP] EMAIL_OVERRIDE_TO active — redirecting to ${redactToken(overrideTo)} (original: ${redactToken(params.to)})`);
   }
 
-  const finalFromHeader = params.category === "cold_outreach" ? `"${resolvePolicy("cold_outreach").displayName.replace(/["\\]/g, "")}" <${fromAddress}>` : fromAddress;
+  const finalFromHeader = displayName ? `"${displayName.replace(/["\\]/g, "")}" <${fromAddress}>` : fromAddress;
   if(params.phase7Attempt){
     if(overrideTo)return {success:false,error:'CRO07_DELIVERY_OVERRIDE_ACTIVE',outcome:'unsent'};
     try{const {bindPhase7FinalEnvelope}=await import('./sequence-ab-authority');await bindPhase7FinalEnvelope({idempotencyKey:params.phase7Attempt.idempotencyKey,to:effectiveTo,subject:effectiveSubject,html:params.html,text:params.text,from:fromAddress,fromHeader:finalFromHeader,replyTo:replyToAddress,headers});}

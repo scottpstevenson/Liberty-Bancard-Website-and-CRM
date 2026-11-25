@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import net from "node:net";
 import { randomUUID } from "node:crypto";
-import { SFP_TEST_COLD_DOMAIN, SFP_TEST_COLD_FROM, startSfpColdSmtpFixture } from "./sfp-cold-smtp-fixture";
+import { startSfpColdSmtpFixture } from "./sfp-cold-smtp-fixture";
+import type { ReaderDeps, ReaderGmail } from "../../server/services/gmail-mailbox-reader";
 import { assertDisposableTestInfrastructure } from "../test-infrastructure-guard";
 import { applyCertificationProviderDenyBoundary,
   getBlockedCertificationNetworkAttemptCount } from "../certification-provider-deny";
@@ -43,6 +44,9 @@ const smtpPort = (smtp.address() as net.AddressInfo).port;
 process.env.SMTP_HOST = "127.0.0.1"; process.env.SMTP_PORT = String(smtpPort);
 process.env.SMTP_USER = "cert"; process.env.SMTP_PASS = "cert";
 const coldSmtp = await startSfpColdSmtpFixture(smtp);
+const { SFP_SALES_ADDRESS } = await import("../../server/services/sender-policy");
+process.env.SFP_COLD_SMTP_FROM = SFP_SALES_ADDRESS;
+delete process.env.SFP_COLD_REPLY_GMAIL_ACCOUNT;
 process.env.APP_URL = "https://liberty.example.test";
 process.env.UNSUBSCRIBE_TOKEN_SECRET ||= "cert-unsubscribe-secret-0123456789abcdef";
 
@@ -55,6 +59,7 @@ const { previewContactBusinessSystemLinks, applyContactBusinessSystemLink } = aw
 const content = await import("../../server/services/cro03/sfp-launch-content");
 const { processSequenceEnrollments } = await import("../../server/services/sequence-worker");
 const { generateUnsubscribeToken } = await import("../../server/services/unsubscribe-token");
+const { openMailboxReader, pollMailboxOnce } = await import("../../server/services/gmail-mailbox-reader");
 
 const prefix = `cert_launch_e2e_${randomUUID().replaceAll("-", "")}`;
 const actor = { role: "admin" as const, actorId: `system:${prefix}`, email: null };
@@ -123,9 +128,9 @@ try {
   check(prepared.enrollmentId != null, "Preparation owns a paused membership");
   const enrollmentId = Number(prepared.enrollmentId);
   // The real selector and real capacity definition: one warm sender able to send five a day.
-  await pool.query(`DELETE FROM sending_identities WHERE lower(email_address)=lower($1)`, [SFP_TEST_COLD_FROM]);
+  await pool.query(`DELETE FROM sending_identities WHERE lower(email_address)=lower($1)`, [SFP_SALES_ADDRESS]);
   await pool.query(`INSERT INTO sending_identities (label,domain,email_address,is_active,warmup_status,daily_limit,sent_today)
-    VALUES('cert',$1,$2,TRUE,'warm',5,0)`, [SFP_TEST_COLD_DOMAIN, SFP_TEST_COLD_FROM]);
+    VALUES('cert',$1,$2,TRUE,'warm',5,0)`, ["libertybancard.com", SFP_SALES_ADDRESS]);
   const enrollment = async () => one("SELECT * FROM sequence_enrollments WHERE id=$1", [enrollmentId]);
 
   // Not released: nothing sends even with the legacy flag off and release-only mode on.
@@ -149,9 +154,9 @@ try {
     "The deferral is audited");
   await pool.query("UPDATE sequence_enrollments SET next_action_at=NOW()-interval '1 minute' WHERE id=$1", [enrollmentId]);
 
-  process.env.SFP_COLD_SMTP_USER = "wrong@example.test";
+  process.env.SFP_COLD_SMTP_FROM = "wrong@example.test";
   await processSequenceEnrollments({ canonicalReleaseOnly: true });
-  process.env.SFP_COLD_SMTP_USER = SFP_TEST_COLD_FROM;
+  process.env.SFP_COLD_SMTP_FROM = SFP_SALES_ADDRESS;
   e = await enrollment();
   check(captured.length === 0 && Number(e.current_step) === 0 && e.status === "active",
     "A mismatched dedicated mailbox defers without attempting delivery through either SMTP endpoint");
@@ -168,16 +173,42 @@ try {
   await pool.query("UPDATE sequence_steps SET sequence_id=$2 WHERE sequence_id=$1", [parking, sequenceId]);
   await pool.query("UPDATE sequence_enrollments SET next_action_at=NOW()-interval '1 minute' WHERE id=$1", [enrollmentId]);
 
+  await processSequenceEnrollments({ canonicalReleaseOnly: true });
+  check(captured.length === 0 && Number((await one(`SELECT count(*) c FROM audit_logs
+    WHERE action='sequence_step_deferred_transport_unavailable' AND entity_id=$1
+      AND details->>'reason'='SFP_SALES_REPLY_READER_UNAVAILABLE'`, [contact.id])).c) === 1,
+    "Sales SMTP defers until the configured reply reader is active");
+  process.env.SFP_COLD_REPLY_GMAIL_ACCOUNT = SFP_SALES_ADDRESS;
+  await storage.setSystemSetting("gmail_oauth_email", SFP_SALES_ADDRESS);
+  let gmailReplyHeaders: { name: string; value: string }[] = [];
+  let historyId = 1000;
+  let gmailMessageId = "cert-gmail-reply";
+  const gmail: ReaderGmail = { users: {
+    getProfile: async () => ({ data: { historyId: String(historyId) } }),
+    history: { list: async () => {
+      const id = String(++historyId);
+      return { data: { historyId: id, history: [{ id, messagesAdded: [{ message: { id: gmailMessageId } }] }] } };
+    } },
+    messages: { get: async () => ({ data: {
+      threadId: "cert-gmail-thread", labelIds: ["INBOX"], internalDate: String(Date.now()),
+      payload: { headers: gmailReplyHeaders },
+    } }) },
+  } };
+  const readerClient: ReaderDeps["getClient"] = async () => ({ ok: true, gmail, account: SFP_SALES_ADDRESS });
+  check((await openMailboxReader()).ok && (await pollMailboxOnce({ getClient: readerClient })).status === "initialized",
+    "Gmail reader initializes through the normal poll");
+  await pool.query("UPDATE sequence_enrollments SET next_action_at=NOW()-interval '1 minute' WHERE id=$1", [enrollmentId]);
+
   // Step 1 send.
   await processSequenceEnrollments({ canonicalReleaseOnly: true });
   e = await enrollment();
   check(captured.length === 1 && coldSmtp.dedicatedConnections() === 1, "Released step 1 is delivered once through the dedicated TLS connection");
   const m1 = captured[0].data;
-  check(/^From: .*Scott@liberty-outreach\.test/mi.test(m1) && /^Reply-To: .*Scott@liberty-outreach\.test/mi.test(m1), "Sender policy supplies the dedicated From and Reply-To");
+  check(/^From: .*sales@libertybancard\.com/mi.test(m1) && /^Reply-To: .*sales@libertybancard\.com/mi.test(m1), "Sales From and Reply-To are independent of the SMTP login");
   check(/List-Unsubscribe:\s*<https:\/\/liberty\.example\.test\/unsubscribe\?t=/i.test(m1) && /List-Unsubscribe-Post: List-Unsubscribe=One-Click/i.test(m1), "Signed List-Unsubscribe and one-click headers are present");
   const decoded = m1.replace(/=\r\n/g, "").replace(/=3D/g, "=");
   check(decoded.includes("Hi Maria,") && !decoded.includes("upload-statement") && /interested in a free statement review/.test(decoded), "Touch 1 is rendered reply-first with the person greeting and no upload CTA");
-  check(/^From: "?Scott Stevenson"? <Scott@liberty-outreach\.test>/mi.test(m1), "From carries the Scott Stevenson display name");
+  check(/^From: "?Liberty Bancard Sales"? <sales@libertybancard\.com>/mi.test(m1), "From carries the Liberty Bancard Sales display name");
   check((decoded.match(/data-sfp-signature/g) ?? []).length === 1 && (decoded.match(/<img\b/g) ?? []).length === 1 && decoded.includes('alt="Liberty Bancard logo"')
     && decoded.indexOf("<img") < decoded.indexOf("data-can-spam-footer"), "One signature, one logo with alt text, above the single transport footer");
   check(!/\{\{|undefined/.test(decoded), "No unresolved token ships");
@@ -196,6 +227,32 @@ try {
   check(captured.length === 2, "Two concurrent workers produce exactly one touch-2 delivery");
   const subject2 = captured[1].data.match(/^Subject: (.*)$/mi)?.[1];
   check(!!subject2 && !/^Re:/i.test(subject2), "Follow-up has no fake Re:");
+
+  const messageId = captured[1].data.match(/^Message-ID: (.*)$/mi)?.[1]?.trim();
+  assert(messageId, "SMTP message carries a Message-ID");
+  const replyHeaders = [
+    { name: "From", value: email }, { name: "To", value: SFP_SALES_ADDRESS },
+    { name: "Subject", value: "Interested in a statement review" },
+    { name: "In-Reply-To", value: messageId },
+  ];
+  gmailReplyHeaders = [...replyHeaders, { name: "Auto-Submitted", value: "auto-replied" }];
+  const autoReplyPoll = await pollMailboxOnce({ getClient: readerClient });
+  check(autoReplyPoll.status === "polled" && Number((await one(`SELECT count(*) c FROM communication_events
+    WHERE contact_id=$1 AND direction='inbound'`, [contact.id])).c) === 0,
+    "An auto-reply is recorded as evidence without creating a reply event");
+  gmailMessageId = "cert-gmail-reply-human";
+  gmailReplyHeaders = replyHeaders;
+  const humanReplyPoll = await pollMailboxOnce({ getClient: readerClient });
+  check(humanReplyPoll.status === "polled" && humanReplyPoll.applied === 1, `A human reply to the actual wire Message-ID is applied (${JSON.stringify(humanReplyPoll)})`);
+  check((await pollMailboxOnce({ getClient: readerClient })).duplicates === 1, "Replaying the Gmail event is idempotent");
+  check(Number((await one(`SELECT count(*) c FROM audit_logs
+    WHERE action='email_inbound' AND entity_id=$1 AND details->>'subject'=$2`, [contact.id, "Interested in a statement review"])).c) === 1,
+    "The CRM Inbox receives one entry for the reply");
+  await pool.query("UPDATE sequence_enrollments SET next_action_at=NOW()-interval '1 minute' WHERE id=$1", [enrollmentId]);
+  await processSequenceEnrollments({ canonicalReleaseOnly: true });
+  e = await enrollment();
+  check(captured.length === 2 && e.status === "completed" && e.metadata?.terminal?.reason === "contact_replied",
+    "The CRM reply stops the remaining sequence touch");
 
   // Opt-out: signed one-click POST suppresses; touch 3 is never sent.
   const { default: express } = await import("express");

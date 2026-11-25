@@ -54,6 +54,7 @@ export interface SenderPolicy {
 // ── Approved identities ───────────────────────────────────────────────────────
 
 export const COLD_OUTREACH_FROM = "Scott@mail.libertybancard.com";
+export const SFP_SALES_ADDRESS = "sales@libertybancard.com";
 
 const POLICY_REGISTRY: Record<MessageCategory, SenderPolicy> = {
   cold_outreach: {
@@ -211,8 +212,11 @@ export function resolvePolicy(category: MessageCategory): SenderPolicy {
   return policy;
 }
 
-/** A dedicated SFP mailbox must be separate from Liberty's existing mail domains. */
+/** Read the SFP sender separately from the relay's authentication username. */
 export function readSfpColdMailbox(): string | null {
+  if (process.env.SFP_COLD_SMTP_FROM !== undefined) {
+    return process.env.SFP_COLD_SMTP_FROM.trim().toLowerCase() === SFP_SALES_ADDRESS ? SFP_SALES_ADDRESS : null;
+  }
   const address = process.env.SFP_COLD_SMTP_USER?.trim();
   const match = address?.match(/^scott@([a-z\d](?:[a-z\d-]*[a-z\d])?(?:\.[a-z\d](?:[a-z\d-]*[a-z\d])?)+)$/i);
   if (!address || !match) return null;
@@ -224,7 +228,13 @@ export function readSfpColdMailbox(): string | null {
 export function resolveSfpColdSenderPolicy(): SenderPolicy {
   const policy = resolvePolicy("cold_outreach");
   const mailbox = readSfpColdMailbox();
-  return mailbox ? { ...policy, from: mailbox, replyTo: mailbox } : policy;
+  if (!mailbox) return policy;
+  return {
+    ...policy,
+    from: mailbox,
+    replyTo: mailbox,
+    displayName: mailbox === SFP_SALES_ADDRESS ? "Liberty Bancard Sales" : policy.displayName,
+  };
 }
 
 /**

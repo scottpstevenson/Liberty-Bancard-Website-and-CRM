@@ -114,11 +114,13 @@ The SFP sequence worker and the authorized staff seed test use a dedicated SMTP 
 | Variable | Description |
 |---|---|
 | `SFP_COLD_SMTP_HOST` | SMTP hostname supplied by the cold outreach provider. |
-| `SFP_COLD_SMTP_PORT` | Defaults to 465 for TLS. Port 587 requires STARTTLS. |
-| `SFP_COLD_SMTP_USER` | Provisioned Scott mailbox on a separate Liberty-owned sending domain. This address sets From, Reply-To and the SFP sending identity. |
-| `SFP_COLD_SMTP_PASS` | Dedicated mailbox password. Store as a deployment secret. |
+| `SFP_COLD_SMTP_PORT` | Defaults to 465 for direct TLS. Other ports require STARTTLS. |
+| `SFP_COLD_SMTP_USER` | Authentication username supplied by the dedicated SMTP provider. |
+| `SFP_COLD_SMTP_PASS` | Dedicated SMTP credential. Store as a deployment secret. |
+| `SFP_COLD_SMTP_FROM` | Set to `sales@libertybancard.com` for the Liberty Bancard Sales sender. This sets From and Reply-To. Existing separate-domain deployments can leave it unset and retain their SMTP mailbox address. |
+| `SFP_COLD_REPLY_GMAIL_ACCOUNT` | Connected Gmail account that receives Sales replies, either directly or by routing that preserves the Sales recipient header. Sales sequence sends defer until this account's mailbox reader has an active cursor and a successful poll within 10 minutes. |
 
-Connect a separate root domain in Mailforge. Keep the existing Liberty website and mail DNS in place. Register the identical mailbox in CRM Sending Identities with its own daily limit. Use the existing staff seed test to verify the mailbox while outbound is paused. Before releasing prospect sequences, confirm that replies, delayed bounces and complaints reach Liberty and trigger the expected sequence or suppression action. Phase 7 experiments require their existing SendGrid feedback path and defer when this sender changes.
+For the Sales sender, keep Google's inbound MX records in place. Use a relay that supports Liberty's lead sourcing and can authenticate the root From address using DKIM with a separate return path. Register the exact From address in CRM Sending Identities with its own daily limit. Use the staff seed test while outbound is paused to verify delivery, sender alignment and preservation of the outgoing Message-ID. Verify with a staff reply to a tracked sequence test that Gmail routing, the CRM inbox and reply-based stopping work together. Connect and verify delayed bounce and complaint handling for the selected relay before releasing prospect sequences. Phase 7 experiments require their existing SendGrid feedback path and defer when this sender changes.
 
 ---
 

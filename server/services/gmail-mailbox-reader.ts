@@ -25,7 +25,7 @@ import { lockForContact, settleAcceptedInTx } from "./website-email-runtime";
 
 export const READER_LEASE_MS = 5 * 60 * 1000;
 const MAX_HISTORY_PAGES = 5;
-const METADATA_HEADERS = ["From", "Subject", "Message-ID", "In-Reply-To", "References", "Auto-Submitted", "Precedence", "X-Autoreply", "X-Failed-Recipients", "Content-Type"];
+const METADATA_HEADERS = ["From", "To", "Delivered-To", "Subject", "Message-ID", "In-Reply-To", "References", "Auto-Submitted", "Precedence", "X-Autoreply", "X-Failed-Recipients", "Content-Type"];
 
 export type ReaderStatus =
   | "closed"
@@ -300,7 +300,14 @@ export async function pollMailboxOnce(overrides: Partial<ReaderDeps> = {}): Prom
         // The authenticated reader supplies account ownership and exact message headers. No address-only experiment attribution.
         const {ingestPhase7MailboxReceipt}=await import('./phase7-feedback');
         await ingestPhase7MailboxReceipt(account,meta);
-        const result = await applyMailboxMessage(account, meta, deps.now());
+        const { recordSfpSalesReply } = await import("./sfp-sales-reply");
+        const salesResult = await recordSfpSalesReply(account, {
+          ...meta,
+          recipientHeaders: (msg.data.payload?.headers ?? [])
+            .filter((header) => /^(to|delivered-to)$/i.test(header.name ?? ""))
+            .map((header) => header.value ?? null),
+        }, deps.now());
+        const result = salesResult === "ignored" ? await applyMailboxMessage(account, meta, deps.now()) : salesResult;
         if (result === "applied") out.applied++;
         else if (result === "unapplied") out.unapplied++;
         else if (result === "duplicate") out.duplicates++;
