@@ -13,6 +13,10 @@ import { getEmailSignatureHtml, getEmailSignaturePlainText, getStoredSignature }
 export const INTAKE_ACTIVATION_KEY = "intake_center_automation_enabled_at";
 export const intakeKinds = ["forms", "merchants", "applications", "introductions", "referrals", "merchant_referrals"] as const;
 export type IntakeKind = typeof intakeKinds[number];
+const canonicalSalesFormTypes = ["general_inquiry", "equipment_inquiry", "statement_upload"] as const;
+function usesInboundSalesTask(kind: IntakeKind, source: IntakeSource) {
+ return kind === "forms" && canonicalSalesFormTypes.some(type => type === source.source_type);
+}
 const definitions: Record<IntakeKind,string> = {
  forms: `SELECT id::text,replace(source_type,'_',' ') AS name,(SELECT first_name FROM contacts WHERE contacts.id=inbound_requests.contact_id) AS recipient_name,submitted_email AS email,source_received_at AS received_at,lifecycle_state AS status,id::text AS request_id,contact_id,source_class,source_type FROM inbound_requests WHERE source_class <> 'intake_submission_request'`,
  merchants: `SELECT id::text,coalesce(legal_business_name,'Merchant application') AS name,owner_first_name AS recipient_name,coalesce(nullif(owner_email,''),business_email) AS email,coalesce(submitted_at,created_at) AS received_at,status,submitted_at IS NOT NULL AS submitted,NULL::text AS request_id,contact_id FROM merchant_applications`,
@@ -60,7 +64,7 @@ export async function listRecentIntakeTriage(kind: IntakeKind, includePrivacy: b
   LEFT JOIN intake_operations op ON op.source_kind=$1 AND op.source_id=r.id
   LEFT JOIN inbound_requests request ON request.id=COALESCE(r.request_id::uuid,op.request_id)
   LEFT JOIN inbound_request_work_links w ON w.request_id=request.id AND w.work_type='task'
-  LEFT JOIN tasks t ON t.id=COALESCE(op.task_id,w.task_id) AND t.deleted_at IS NULL
+  LEFT JOIN tasks t ON t.id=COALESCE(w.task_id,op.task_id) AND t.deleted_at IS NULL
   LEFT JOIN LATERAL (
    SELECT id, metadata FROM notifications
    WHERE inbound_request_id=request.id
@@ -104,6 +108,12 @@ async function reviewNotification(requestId:string, title:string, link:string) {
   return Number(result.rows[0].id);
  });
 }
+async function inboundReviewTaskId(requestId: string): Promise<number | null> {
+ const result = await pool.query<{task_id: number | null}>(`SELECT task_id FROM inbound_request_work_links
+   WHERE request_id=$1 AND work_type='task'`, [requestId]);
+ return result.rows[0]?.task_id ?? null;
+}
+
 async function ensureOperations(kind:IntakeKind,source:IntakeSource) {
  await db.execute(sql`INSERT INTO intake_operations(source_kind,source_id) VALUES(${kind},${source.id}) ON CONFLICT DO NOTHING`);
  const link=intakeRecordHref(kind,source.id);
@@ -117,11 +127,15 @@ async function ensureOperations(kind:IntakeKind,source:IntakeSource) {
   requestId=claimed.request.id;
   await linkInboundRequest(requestId,{submittedEmail:source.email});
  }
- const originalTask=(await pool.query(`SELECT task_id FROM inbound_request_work_links WHERE request_id=$1 AND task_id IS NOT NULL LIMIT 1`,[requestId])).rows[0];
- const owner=(await pool.query(`SELECT email FROM users WHERE lower(email)='scott@libertybancard.com' AND account_state='active' AND role IN ('admin','manager')`)).rows;
- const assignedTo = await resolveDefaultOwnerEmail() ?? (owner.length === 1 ? owner[0].email : undefined);
- const dueDate = reviewBusinessDayDeadline(new Date(source.received_at), 2);
- const task=originalTask ? {id:originalTask.task_id} : await storage.createAuthorityTask({title,description:`${link}\nRecord reference: ${source.id}`,assignedTo,dueDate,status:'pending',priority:'normal',source:'intake_center',automationKey:`intake:${kind}:${source.id}`},{producer:'intake_center',commandKey:`intake:${kind}:${source.id}:task`,issueKey:`intake:${kind}:${source.id}`,context:{kind,sourceId:source.id,requestId}});
+ // Public sales forms own their review task. Reconciliation only projects the link.
+ let taskId = await inboundReviewTaskId(requestId);
+ if (taskId === null && !usesInboundSalesTask(kind, source)) {
+  const owner=(await pool.query(`SELECT email FROM users WHERE lower(email)='scott@libertybancard.com' AND account_state='active' AND role IN ('admin','manager')`)).rows;
+  const assignedTo = await resolveDefaultOwnerEmail() ?? (owner.length === 1 ? owner[0].email : undefined);
+  const dueDate = reviewBusinessDayDeadline(new Date(source.received_at), 2);
+  const task = await storage.createAuthorityTask({title,description:`${link}\nRecord reference: ${source.id}`,assignedTo,dueDate,status:'pending',priority:'normal',source:'intake_center',automationKey:`intake:${kind}:${source.id}`},{producer:'intake_center',commandKey:`intake:${kind}:${source.id}:task`,issueKey:`intake:${kind}:${source.id}`,context:{kind,sourceId:source.id,requestId}});
+  taskId = task.id;
+ }
  let notificationId:number;
  const prior=(await pool.query(`SELECT id FROM notifications WHERE inbound_request_id=$1 ORDER BY id LIMIT 1`,[requestId])).rows[0];
  notificationId=prior?.id ?? await reviewNotification(requestId,title,link);
@@ -129,7 +143,7 @@ async function ensureOperations(kind:IntakeKind,source:IntakeSource) {
  await db.transaction(async tx=>{
   // Existing application/introduction/referral alerts already have a unique owner; enqueue again safely, never duplicate.
   if (alertKind !== "ghl_booking") await enqueueTeamIntakeAlert(tx,alertKind,source.id);
-  await tx.execute(sql`UPDATE intake_operations SET request_id=${requestId}::uuid,task_id=${task.id},notification_id=${notificationId},ready=true,updated_at=now() WHERE source_kind=${kind} AND source_id=${source.id}`);
+  await tx.execute(sql`UPDATE intake_operations SET request_id=${requestId}::uuid,task_id=${taskId},notification_id=${notificationId},ready=true,updated_at=now() WHERE source_kind=${kind} AND source_id=${source.id}`);
  });
 }
 async function repairOpenBookingDeadlines(from: Date) {
@@ -159,13 +173,14 @@ export async function reconcileIntakeOperations() {
  let processed=0,failed=0;
  for(const kind of intakeKinds){
   const scope = kind === "merchants" ? "AND s.submitted" : kind === "forms" ? `AND s.source_class <> 'partner_application_request'
+   AND (s.source_type <> ALL($3::text[]) OR s.status IN ('review_required','accepted','completed'))
    AND (s.source_type <> 'appointment_booked' OR EXISTS (
     SELECT 1 FROM team_intake_alerts a WHERE a.event_key='ghl_booking:' || s.id
    ))` : "";
   const records=(await pool.query(`SELECT s.* FROM (${definitions[kind]}) s
    LEFT JOIN intake_operations o ON o.source_kind=$1 AND o.source_id=s.id
    WHERE s.received_at >= $2 ${scope} AND coalesce(o.ready,false)=false
-   ORDER BY o.updated_at NULLS FIRST,s.received_at,s.id LIMIT 25`,[kind,from])).rows;
+   ORDER BY o.updated_at NULLS FIRST,s.received_at,s.id LIMIT 25`,[kind,from,...(kind === "forms" ? [canonicalSalesFormTypes] : [])])).rows;
   for(const source of records)try{await ensureOperations(kind,source);processed++;}catch{failed++;await pool.query(`UPDATE intake_operations SET updated_at=now() WHERE source_kind=$1 AND source_id=$2`,[kind,source.id]);}
  }
  await repairOpenBookingDeadlines(from);
@@ -176,7 +191,9 @@ export async function readIntakeRecord(kind:IntakeKind,id:string) {
  const source=await readIntakeSource(kind,id);if(!source)return null;
  const operation=(await pool.query(`SELECT source_kind,source_id,request_id,task_id,notification_id,ready,created_at,updated_at FROM intake_operations WHERE source_kind=$1 AND source_id=$2`,[kind,id])).rows[0]??null;
  const requestId=source.request_id??operation?.request_id;
- const tasks=operation?.task_id?(await pool.query(`SELECT id,title,status,due_date,assigned_to FROM tasks WHERE id=$1`,[operation.task_id])).rows:requestId?(await pool.query(`SELECT t.id,t.title,t.status,t.due_date,t.assigned_to FROM tasks t JOIN inbound_request_work_links w ON w.task_id=t.id WHERE w.request_id=$1`,[requestId])).rows:[];
+ const taskId = (requestId ? await inboundReviewTaskId(requestId) : null) ?? operation?.task_id;
+ const tasks = taskId ? (await pool.query(`SELECT id,title,status,due_date,assigned_to FROM tasks
+   WHERE id=$1 AND deleted_at IS NULL`, [taskId])).rows : [];
  const receipts=requestId?(await pool.query(`SELECT state,blocked_reason,attempt_count,updated_at,subject,html_body,text_body FROM inbound_acknowledgements WHERE request_id=$1`,[requestId])).rows:[];
  const notifications=requestId?(await pool.query(`SELECT id,title,created_at FROM notifications WHERE inbound_request_id=$1 ORDER BY id DESC LIMIT 20`,[requestId])).rows:operation?.notification_id?(await pool.query(`SELECT id,title,created_at FROM notifications WHERE id=$1`,[operation.notification_id])).rows:[];
  const alerts=(await pool.query(`SELECT state,attempt_count,last_error,created_at,updated_at FROM team_intake_alerts WHERE source_kind=$1 AND source_id=$2`,[staffAlertKind(kind,source),id])).rows;
@@ -212,6 +229,15 @@ export async function queueIntakeCorrespondence(input:{kind:IntakeKind;id:string
 /** Explicit staff action for an older record; creates work only, never sends a historical receipt or alert email. */
 export async function createIntakeFollowupTask(kind:IntakeKind,id:string) {
  const source=await readIntakeSource(kind,id);if(!source)return null;
+ if (usesInboundSalesTask(kind, source)) {
+  const originalTaskId = await inboundReviewTaskId(source.id);
+  const existing = originalTaskId === null
+   ? (await pool.query<{task_id: number | null}>("SELECT task_id FROM intake_operations WHERE source_kind=$1 AND source_id=$2", [kind,id])).rows[0]
+   : undefined;
+  const taskId = originalTaskId ?? existing?.task_id;
+  const task = taskId == null ? null : await storage.getTaskById(taskId);
+  return task?.deletedAt ? null : task;
+ }
  const task=await storage.createAuthorityTask({title:'Review intake submission',description:intakeRecordHref(kind,id),status:'pending',priority:'normal',source:'intake_center',automationKey:`intake:${kind}:${id}`},{producer:'intake_center',commandKey:`intake:${kind}:${id}:task`,issueKey:`intake:${kind}:${id}`,context:{kind,sourceId:id}});
  await db.execute(sql`INSERT INTO intake_operations(source_kind,source_id,task_id) VALUES(${kind},${id},${task.id}) ON CONFLICT(source_kind,source_id) DO UPDATE SET task_id=EXCLUDED.task_id,updated_at=now()`);
  return task;

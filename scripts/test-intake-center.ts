@@ -84,6 +84,35 @@ try{
  const authority=await import('../server/services/inbound-request-authority');
  const defaults=await import('../server/services/inbound-default-owner');
  await defaults.setDefaultOwner(h.userId('admin'),h.userId('admin'));
+ const processing=await authority.claimInboundRequest({
+  idempotencyKey:randomUUID(),sourceCategory:'website_form',sourceType:'general_inquiry',
+  callerScope:'public:processing-race-fixture',actorType:'public',payload:{},
+ });
+ if(processing.outcome!=='claimed')throw Error('processing fixture unavailable');
+ const processingId=processing.request.id;
+ const processingPath='/api/intake-center/records/forms/'+processingId;
+ await authority.linkInboundRequest(processingId,{submittedEmail:'processing-race@example.test',lifecycleState:'processing'});
+ await service.reconcileIntakeOperations();
+ eq((await q("SELECT count(*)::int n FROM intake_operations WHERE source_kind='forms' AND source_id=$1",[processingId]))[0].n,0,'Intake reconciliation waits for the original form handler to save');
+ eq((await h.request('manager','POST',processingPath+'/task',{})).status,404,'Staff action during save cannot create a competing task');
+ const {storage}=await import('../server/storage');
+ const processingDue=authority.inboundSlaDueAt('sales_request',processing.request.sourceReceivedAt)!;
+ const task=await storage.createAuthorityTask({
+  title:'Review processing inquiry',assignedTo:h.email('admin'),dueDate:processingDue,status:'pending',priority:'normal',source:'inbound_request',
+ },{producer:'inbound_request',commandKey:'inbound:'+processingId+':task',issueKey:'inbound-sales:'+processingId,context:{requestId:processingId}});
+ await authority.linkInboundWork({requestId:processingId,workType:'task',taskId:task.id});
+ await authority.linkInboundRequest(processingId,{slaDueAt:processingDue,lifecycleState:'review_required'});
+ await service.reconcileIntakeOperations();
+ await service.reconcileIntakeOperations();
+ eq((await q("SELECT task_id FROM intake_operations WHERE source_kind='forms' AND source_id=$1",[processingId]))[0].task_id,task.id,'The intake projection reuses the form-owned task');
+ eq((await q("SELECT count(*)::int n FROM team_intake_alerts WHERE event_key='inbound:'||$1",[processingId]))[0].n,1,'Reconciled form keeps one staff email');
+ const duplicate=await storage.createAuthorityTask({
+  title:'Old fallback task',assignedTo:h.email('manager'),status:'pending',priority:'normal',source:'intake_center',
+ },{producer:'intake_center',commandKey:'intake:forms:'+processingId+':task',issueKey:'intake:forms:'+processingId,context:{requestId:processingId}});
+ await q("UPDATE intake_operations SET task_id=$2 WHERE source_kind='forms' AND source_id=$1",[processingId,duplicate.id]);
+ eq((await h.request('manager','GET',processingPath)).body.tasks.map((row:any)=>row.id),[task.id],'Review drawer prefers the original task over a historical fallback');
+ eq((await h.request('manager','GET','/api/intake-center/triage/forms')).body.find((row:any)=>row.id===processingId).owner,h.email('admin'),'Intake triage reads the same task owner');
+ eq((await h.request('manager','POST',processingPath+'/task',{})).body.id,task.id,'Staff action finds the same original task');
  const booking=await authority.claimVerifiedProviderEvent({sourceType:'appointment_booked',eventId:'intake-booking-fixture',payload:{}});
  const otherBooking=await authority.claimVerifiedProviderEvent({sourceType:'appointment_booked',eventId:'out-of-scope-booking-fixture',payload:{}});
  if(booking.outcome!=='claimed'||otherBooking.outcome!=='claimed')throw Error('booking fixtures unavailable');
