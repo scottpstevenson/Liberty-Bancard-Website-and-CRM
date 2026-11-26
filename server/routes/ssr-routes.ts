@@ -368,7 +368,7 @@ export function registerSsrRoutes(app: Express) {
     res.send(getIntegrationsHtml());
   });
 
-  app.get(["/help", "/help/:category", "/help/:category/:slug"], (req, res) => {
+  app.get<{ category?: string; slug?: string }>(["/help", "/help/:category", "/help/:category/:slug"], (req, res) => {
     const html = getHelpHtml(req.params.category, req.params.slug);
     if (!html) return sendPublicNotFound(res);
     res.setHeader("Cache-Control", PAGE_CACHE);
