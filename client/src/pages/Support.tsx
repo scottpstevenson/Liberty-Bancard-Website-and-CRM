@@ -98,7 +98,7 @@ export default function Support() {
       for (const [path, message] of Object.entries(outcome.fieldErrors ?? {})) {
         if (path in data) form.setError(path as keyof SupportFormData, { message });
       }
-      setSubmitError("We couldn't send your request. Please check your details and try again. If the problem continues, call 954-266-8214.");
+      setSubmitError("We couldn't send your request. Please check your details and try again. If the problem continues, call 786-375-9726.");
     }
   };
 
@@ -126,13 +126,13 @@ export default function Support() {
     {
       icon: Phone,
       title: "Terminal completely down?",
-      text: "If you can't take payments at all, call 954-266-8214 instead of waiting on a form.",
+      text: "If you can't take payments at all, call 786-375-9726 instead of waiting on a form.",
     },
   ];
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <SEO title="Contact Support" description="Existing merchants can send a support request about deposits, terminals, chargebacks or PCI, or call 954-266-8214 or email support@libertybancard.com." path="/support" breadcrumbs={[{ name: "Support", path: "/support" }]} />
+      <SEO title="Contact Support" description="Existing merchants can send a support request about deposits, terminals, chargebacks or PCI, or call 786-375-9726 or email support@libertybancard.com." path="/support" breadcrumbs={[{ name: "Support", path: "/support" }]} />
       <Navbar />
 
       <main className="flex-grow public-main-offset" ref={containerRef}>

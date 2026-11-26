@@ -51,7 +51,7 @@ export default function RegulatoryNotices() {
                 <li>Tell the caller during any call that you do not wish to be called again</li>
                 <li>Reply STOP to any text message from Liberty Bancard</li>
                 <li>Email <a href="mailto:donotcall@libertybancard.com" className="underline">donotcall@libertybancard.com</a> with your name and phone number(s)</li>
-                <li>Call 954-266-8214 and request to be added to our do-not-call list</li>
+                <li>Call 786-375-9726 and request to be added to our do-not-call list</li>
                 <li>Register your number with the National Do Not Call Registry at <a href="https://www.donotcall.gov" className="underline" target="_blank" rel="noopener noreferrer">donotcall.gov</a></li>
               </ul>
             </section>
@@ -79,7 +79,7 @@ export default function RegulatoryNotices() {
             <section>
               <h2 className="text-xl font-display font-semibold text-foreground mb-3">Complaints</h2>
               <p>
-                If you believe Liberty Bancard has contacted you in violation of this policy or applicable telemarketing laws, please contact us immediately at <a href="mailto:compliance@libertybancard.com" className="underline">compliance@libertybancard.com</a> or call 954-266-8214. We take all complaints seriously and will investigate promptly. You may also file a complaint with the Federal Trade Commission at <a href="https://www.ftc.gov" className="underline" target="_blank" rel="noopener noreferrer">ftc.gov</a> or with your state attorney general's office.
+                If you believe Liberty Bancard has contacted you in violation of this policy or applicable telemarketing laws, please contact us immediately at <a href="mailto:compliance@libertybancard.com" className="underline">compliance@libertybancard.com</a> or call 786-375-9726. We take all complaints seriously and will investigate promptly. You may also file a complaint with the Federal Trade Commission at <a href="https://www.ftc.gov" className="underline" target="_blank" rel="noopener noreferrer">ftc.gov</a> or with your state attorney general's office.
               </p>
             </section>
 
@@ -120,9 +120,9 @@ export default function RegulatoryNotices() {
                   <Mail className="w-4 h-4 shrink-0" />
                   <span>legal@libertybancard.com</span>
                 </a>
-                <a href="tel:9542668214" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" onClick={() => trackPhoneCallClick({ sourcePage: "/regulatory-notices" })}>
+                <a href="tel:7863759726" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" onClick={() => trackPhoneCallClick({ sourcePage: "/regulatory-notices" })}>
                   <Phone className="w-4 h-4 shrink-0" />
-                  <span>954-266-8214</span>
+                  <span>786-375-9726</span>
                 </a>
               </div>
             </section>

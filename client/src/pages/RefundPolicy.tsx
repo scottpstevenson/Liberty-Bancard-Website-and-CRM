@@ -47,7 +47,7 @@ export default function RefundPolicy() {
               <ul className="list-disc pl-6 space-y-2">
                 <li>Email your cancellation request to <a href="mailto:support@libertybancard.com" className="underline">support@libertybancard.com</a> with the subject line "Account Cancellation Request"</li>
                 <li>Include your business name, merchant ID (MID), and the name of the authorized signer on the account</li>
-                <li>Call 954-266-8214 to speak with a representative about your cancellation</li>
+                <li>Call 786-375-9726 to speak with a representative about your cancellation</li>
               </ul>
               <p className="mt-3">
                 Cancellation requests are typically processed within 5-10 business days. You will receive written confirmation when your account has been closed. You are responsible for all fees, transactions, and chargebacks that occur prior to the effective date of cancellation.
@@ -118,7 +118,7 @@ export default function RefundPolicy() {
               <h2 className="text-xl font-display font-semibold text-foreground mb-3">How to Request a Refund</h2>
               <p className="mb-3">To request a refund or dispute a charge:</p>
               <ol className="list-decimal pl-6 space-y-2">
-                <li>Contact our support team at <a href="mailto:support@libertybancard.com" className="underline">support@libertybancard.com</a> or call 954-266-8214</li>
+                <li>Contact our support team at <a href="mailto:support@libertybancard.com" className="underline">support@libertybancard.com</a> or call 786-375-9726</li>
                 <li>Provide your business name, merchant ID (MID), and a description of the charge in question</li>
                 <li>Include any supporting documentation (statements, screenshots, correspondence)</li>
                 <li>We will investigate your request and respond within 10 business days</li>
@@ -151,9 +151,9 @@ export default function RefundPolicy() {
                   <Mail className="w-4 h-4 shrink-0" />
                   <span>support@libertybancard.com</span>
                 </a>
-                <a href="tel:9542668214" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" data-testid="link-refund-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/refund-policy" })}>
+                <a href="tel:7863759726" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" data-testid="link-refund-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/refund-policy" })}>
                   <Phone className="w-4 h-4 shrink-0" />
-                  <span>954-266-8214</span>
+                  <span>786-375-9726</span>
                 </a>
               </div>
             </section>

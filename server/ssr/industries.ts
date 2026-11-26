@@ -92,7 +92,7 @@ function renderIndustryHtml(data: IndustryContent): string {
 
   const actions = `<a href="${esc(INDUSTRY_PRIMARY_ACTION.href)}" class="ssr-btn-primary">${esc(INDUSTRY_PRIMARY_ACTION.label)}</a>
           <a href="${esc(INDUSTRY_SECONDARY_ACTION.href)}" class="ssr-btn-outline">${esc(INDUSTRY_SECONDARY_ACTION.label)}</a>
-          <a href="tel:9542668214" class="ssr-btn-outline" aria-label="Call Liberty Bancard at 954-266-8214">954-266-8214</a>`;
+          <a href="tel:7863759726" class="ssr-btn-outline" aria-label="Call Liberty Bancard at 786-375-9726">786-375-9726</a>`;
 
   const heroImage = INDUSTRY_HERO_IMAGES[data.slug] as PublicImageId | undefined;
   const heroVisual = heroImage

@@ -4,5 +4,5 @@
  */
 export const CALENDAR_URL = "https://libertybancard.com/book";
 
-export const PHONE_NUMBER = "954-266-8214";
-export const PHONE_TEL = "tel:9542668214";
+export const PHONE_NUMBER = "786-375-9726";
+export const PHONE_TEL = "tel:7863759726";

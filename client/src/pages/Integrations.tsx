@@ -381,7 +381,7 @@ export default function Integrations() {
                     <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-3" />
                     <h3 className="text-lg font-semibold mb-2">Thanks — we got your request</h3>
                     <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">
-                      {INTEGRATIONS_REQUEST.successBody} <a href="tel:9542668214" className="text-primary hover:underline" onClick={() => trackPhoneCallClick({ sourcePage: "/integrations" })}>954-266-8214</a>.
+                      {INTEGRATIONS_REQUEST.successBody} <a href="tel:7863759726" className="text-primary hover:underline" onClick={() => trackPhoneCallClick({ sourcePage: "/integrations" })}>786-375-9726</a>.
                     </p>
                     <Button
                       variant="outline"

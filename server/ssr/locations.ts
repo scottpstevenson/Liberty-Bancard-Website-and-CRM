@@ -43,7 +43,7 @@ function serviceSchema(content: { title: string; metaDescription: string; canoni
 function actionsHtml(primary: { label: string; href: string }, secondary: { label: string; href: string }): string {
   return `<a href="${esc(primary.href)}" class="ssr-btn-primary">${esc(primary.label)}</a>
           <a href="${esc(secondary.href)}" class="ssr-btn-outline">${esc(secondary.label)}</a>
-          <a href="tel:9542668214" class="ssr-btn-outline" aria-label="Call Liberty Bancard at 954-266-8214">954-266-8214</a>`;
+          <a href="tel:7863759726" class="ssr-btn-outline" aria-label="Call Liberty Bancard at 786-375-9726">786-375-9726</a>`;
 }
 
 function renderDetail(content: LocationDetailContent): string {

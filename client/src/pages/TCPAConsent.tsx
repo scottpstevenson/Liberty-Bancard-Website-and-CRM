@@ -87,7 +87,7 @@ export default function TCPAConsent() {
               <p className="mb-3">You may revoke your consent and opt out of receiving calls and text messages at any time using any of the following methods:</p>
               <ul className="list-disc pl-6 space-y-2">
                 <li><strong>Text STOP:</strong> Reply STOP, UNSUBSCRIBE, CANCEL, END, or QUIT to any text message from Liberty Bancard.</li>
-                <li><strong>Call Us:</strong> Call 954-266-8214 and request to be removed from our call and text lists.</li>
+                <li><strong>Call Us:</strong> Call 786-375-9726 and request to be removed from our call and text lists.</li>
                 <li><strong>Email Us:</strong> Send your opt-out request to <a href="mailto:support@libertybancard.com" className="underline">support@libertybancard.com</a> with the subject line "TCPA Opt-Out."</li>
                 <li><strong>Written Request:</strong> Send a written request to our mailing address.</li>
               </ul>
@@ -99,7 +99,7 @@ export default function TCPAConsent() {
             <section>
               <h2 className="text-xl font-display font-semibold text-foreground mb-3">How to Get Help</h2>
               <p>
-                For help with text messages, reply HELP to any message from Liberty Bancard, or contact us at <a href="mailto:support@libertybancard.com" className="underline">support@libertybancard.com</a> or call 954-266-8214.
+                For help with text messages, reply HELP to any message from Liberty Bancard, or contact us at <a href="mailto:support@libertybancard.com" className="underline">support@libertybancard.com</a> or call 786-375-9726.
               </p>
             </section>
 
@@ -166,9 +166,9 @@ export default function TCPAConsent() {
                   <Mail className="w-4 h-4 shrink-0" />
                   <span>support@libertybancard.com</span>
                 </a>
-                <a href="tel:9542668214" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" data-testid="link-tcpa-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/tcpa-consent" })}>
+                <a href="tel:7863759726" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" data-testid="link-tcpa-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/tcpa-consent" })}>
                   <Phone className="w-4 h-4 shrink-0" />
-                  <span>954-266-8214</span>
+                  <span>786-375-9726</span>
                 </a>
               </div>
             </section>

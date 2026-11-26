@@ -310,7 +310,7 @@ export const HOME_ORGANIZATION_SCHEMA = {
   "@type": "Organization",
   name: "Liberty Bancard",
   url: HOME_SITE_URL,
-  telephone: "+1-954-266-8214",
+  telephone: "+1-786-375-9726",
   email: "support@libertybancard.com",
   description:
     "Payment processing, terminal equipment and integrations for businesses, with a statement review that explains your current charges and your options.",
@@ -324,6 +324,6 @@ export const HOME_LOCAL_BUSINESS_SCHEMA = {
   name: "Liberty Bancard",
   description: "Payment processing, terminal equipment and integrations for businesses.",
   url: HOME_SITE_URL,
-  telephone: "+1-954-266-8214",
+  telephone: "+1-786-375-9726",
   address: HOME_ADDRESS,
 } as const;

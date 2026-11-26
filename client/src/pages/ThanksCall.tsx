@@ -179,9 +179,9 @@ export default function ThanksCall() {
                 </a>
               </Button>
               <Button variant="outline" className="gap-2" asChild>
-                <a href="tel:9542668214" data-testid="link-thanks-call-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/thanks-call" })}>
+                <a href="tel:7863759726" data-testid="link-thanks-call-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/thanks-call" })}>
                   <Phone className="w-4 h-4" />
-                  Call/Text 954-266-8214
+                  Call/Text 786-375-9726
                 </a>
               </Button>
             </div>

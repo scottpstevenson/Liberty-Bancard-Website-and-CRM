@@ -841,7 +841,7 @@ export default function MerchantApplication() {
     } catch (error: any) {
       toast({
         title: "Something went wrong",
-        description: error.message || "Please try again or call us at 954-266-8214.",
+        description: error.message || "Please try again or call us at 786-375-9726.",
         variant: "destructive",
       });
     } finally {
@@ -995,7 +995,7 @@ export default function MerchantApplication() {
                     </div>
                   </div>
                   <p className="text-muted-foreground mb-6">
-                    For questions, call us at <a href="tel:9542668214" className="public-application-link text-primary font-medium" onClick={() => trackPhoneCallClick({ sourcePage: "/merchant-application" })}>954-266-8214</a>.
+                    For questions, call us at <a href="tel:7863759726" className="public-application-link text-primary font-medium" onClick={() => trackPhoneCallClick({ sourcePage: "/merchant-application" })}>786-375-9726</a>.
                   </p>
                   <p className="text-xs text-muted-foreground border-t pt-4" data-testid="text-success-disclaimer">
                     Liberty Bancard is a registered ISO of our acquiring bank partner(s). All applications are subject to underwriting approval.

@@ -210,13 +210,13 @@ export default function ThanksApplication() {
                   Have Questions? We're Here.
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <a href="tel:9542668214" className="flex items-center gap-3 group" data-testid="link-contact-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/thanks-application" })}>
+                  <a href="tel:7863759726" className="flex items-center gap-3 group" data-testid="link-contact-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/thanks-application" })}>
                     <div className="w-9 h-9 rounded-md bg-primary/10 flex items-center justify-center shrink-0 group-hover:bg-primary/20 transition-colors">
                       <Phone className="w-4 h-4 text-primary" />
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Call or Text</p>
-                      <p className="text-sm font-medium text-foreground">954-266-8214</p>
+                      <p className="text-sm font-medium text-foreground">786-375-9726</p>
                     </div>
                   </a>
                   <a href="mailto:support@libertybancard.com" className="flex items-center gap-3 group" data-testid="link-contact-email">

@@ -124,10 +124,10 @@ function AccountStatusBanner({ profile, isLoading }: { profile: MerchantProfile 
         )}
       </div>
       <div className="flex items-center gap-4 text-xs text-muted-foreground shrink-0">
-        <a href="tel:9542668214" className="flex items-center gap-1 hover:text-foreground transition-colors" data-testid="banner-rep-phone"
+        <a href="tel:7863759726" className="flex items-center gap-1 hover:text-foreground transition-colors" data-testid="banner-rep-phone"
           onClick={() => trackPhoneCallClick({ sourcePage: "/dashboard/merchant-portal" })}>
           <Phone className="w-3 h-3" />
-          954-266-8214
+          786-375-9726
         </a>
         <a href="mailto:support@libertybancard.com" className="flex items-center gap-1 hover:text-foreground transition-colors hidden sm:flex" data-testid="banner-rep-email">
           <Mail className="w-3 h-3" />
@@ -571,7 +571,7 @@ function ApplicationStatusCard() {
           </div>
         )}
 
-        <p className="text-xs text-muted-foreground">Typical approval timeline: 3–5 business days. Questions? Call 954-266-8214.</p>
+        <p className="text-xs text-muted-foreground">Typical approval timeline: 3–5 business days. Questions? Call 786-375-9726.</p>
       </CardContent>
     </Card>
   );
@@ -780,10 +780,10 @@ function AccountTab({ profile, isLoading, isAdmin }: { profile: MerchantProfile 
                 <p className="text-sm text-muted-foreground">Dedicated merchant success team</p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <a href="tel:9542668214" className="flex items-center gap-2 text-sm hover:text-primary transition-colors" data-testid="link-rep-phone"
+                <a href="tel:7863759726" className="flex items-center gap-2 text-sm hover:text-primary transition-colors" data-testid="link-rep-phone"
                   onClick={() => trackPhoneCallClick({ sourcePage: "/dashboard/merchant-portal" })}>
                   <Phone className="w-4 h-4 text-muted-foreground shrink-0" />
-                  954-266-8214
+                  786-375-9726
                 </a>
                 <a href="mailto:support@libertybancard.com" className="flex items-center gap-2 text-sm hover:text-primary transition-colors" data-testid="link-rep-email">
                   <Mail className="w-4 h-4 text-muted-foreground shrink-0" />
@@ -2086,7 +2086,7 @@ function NoDataState({ mid }: { mid: string | null }) {
           </p>
         </div>
         <div className="flex flex-col gap-2 w-full max-w-xs">
-          <a href="tel:9542668214" onClick={() => trackPhoneCallClick({ sourcePage: "/dashboard/merchant-portal-financial" })}>
+          <a href="tel:7863759726" onClick={() => trackPhoneCallClick({ sourcePage: "/dashboard/merchant-portal-financial" })}>
             <Button variant="outline" className="w-full" data-testid="button-call-support-financial">
               <Phone className="w-4 h-4 mr-2" />
               Call Support

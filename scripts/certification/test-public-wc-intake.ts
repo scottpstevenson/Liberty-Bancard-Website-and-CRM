@@ -256,7 +256,7 @@ const PDF = Buffer.concat([Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj
         const { status, html } = await page(query);
         check(status === 200 && html.includes(`<h1>${page$.heading}</h1>`) && html.includes(page$.body), `The first HTML for /get-started${query.split("&")[0]} carries the terminal inquiry heading and intro`);
         check(html.includes(`<title>${page$.title} | Liberty Bancard</title>`) && html.includes(page$.description) && html.includes('href="https://libertybancard.com/get-started"'), `/get-started${query.split("&")[0]}: the title, description and canonical agree with the hydrated page`);
-        check(page$.asks.every((ask) => html.includes(ask)) && html.includes(page$.asksNote) && html.includes('href="tel:9542668214"'), `/get-started${query.split("&")[0]}: the first HTML lists what the short inquiry asks, and offers the phone`);
+        check(page$.asks.every((ask) => html.includes(ask)) && html.includes(page$.asksNote) && html.includes('href="tel:7863759726"'), `/get-started${query.split("&")[0]}: the first HTML lists what the short inquiry asks, and offers the phone`);
         check(!GENERIC_ONLY.test(html) && !intakeStatement.test(html.replace(page$.asksNote, "")), `/get-started${query.split("&")[0]}: the first HTML never shows the application-prerequisite list or statement and identity requirements`);
       }
       for (const query of ["", "?offer=unsupported", "?offer=free-terminal-evil", "?terminal=no", "?terminal=YES", "?offer="]) {

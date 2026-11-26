@@ -29,7 +29,7 @@ export default function PrivacyPolicy() {
             <section>
               <h2 className="text-xl font-display font-semibold text-foreground mb-3">Data Controller</h2>
               <p className="mb-3">
-                Liberty Bancard is the data controller responsible for your personal data. Liberty Bancard is a registered Independent Sales Organization (ISO) and merchant services provider. <strong>Liberty Bancard is not a bank, financial institution, or direct processor.</strong> We facilitate payment processing services on behalf of our acquiring bank partner(s). For questions about data processing or to exercise your rights, contact us at <a href="mailto:privacy@libertybancard.com" className="underline">privacy@libertybancard.com</a> or by phone at 954-266-8214.
+                Liberty Bancard is the data controller responsible for your personal data. Liberty Bancard is a registered Independent Sales Organization (ISO) and merchant services provider. <strong>Liberty Bancard is not a bank, financial institution, or direct processor.</strong> We facilitate payment processing services on behalf of our acquiring bank partner(s). For questions about data processing or to exercise your rights, contact us at <a href="mailto:privacy@libertybancard.com" className="underline">privacy@libertybancard.com</a> or by phone at 786-375-9726.
               </p>
             </section>
 
@@ -203,9 +203,9 @@ export default function PrivacyPolicy() {
                   <Mail className="w-4 h-4 shrink-0" />
                   <span>privacy@libertybancard.com</span>
                 </a>
-                <a href="tel:9542668214" className="public-tap flex items-center gap-2 text-foreground hover:text-primary transition-colors" data-testid="link-privacy-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/privacy-policy" })}>
+                <a href="tel:7863759726" className="public-tap flex items-center gap-2 text-foreground hover:text-primary transition-colors" data-testid="link-privacy-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/privacy-policy" })}>
                   <Phone className="w-4 h-4 shrink-0" />
-                  <span>954-266-8214</span>
+                  <span>786-375-9726</span>
                 </a>
               </div>
               <p className="mt-3 text-xs">

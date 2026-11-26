@@ -57,7 +57,7 @@ export const SEO_ROUTE_DEFAULTS: Record<string, SeoRouteDefault> = {
   "/industries": { title: `${INDUSTRIES_HUB.title} | Liberty Bancard`, description: INDUSTRIES_HUB.description, keywords: INDUSTRIES_HUB.keywords, ogTemplate: "industry", inSitemap: true },
   "/about-contact": { title: ABOUT_CONTACT_META.title, description: ABOUT_CONTACT_META.description, ogTemplate: "default", inSitemap: true },
   "/estimate": { title: "Free Effective Rate Estimate | Liberty Bancard", description: "Get a quick processing cost estimate. Provide your monthly volume and current fees for a preliminary analysis and next steps.", ogTemplate: "service", inSitemap: true },
-  "/support": { title: "Contact Support | Liberty Bancard", description: "Existing merchants can send a support request about deposits, terminals, chargebacks or PCI, or call 954-266-8214 or email support@libertybancard.com.", ogTemplate: "default", inSitemap: true },
+  "/support": { title: "Contact Support | Liberty Bancard", description: "Existing merchants can send a support request about deposits, terminals, chargebacks or PCI, or call 786-375-9726 or email support@libertybancard.com.", ogTemplate: "default", inSitemap: true },
   "/savings-calculator": { title: `${CALC_COPY.title} | Liberty Bancard`, description: CALC_COPY.description, keywords: CALC_COPY.keywords, ogTemplate: "service", inSitemap: true },
   "/compare-rates": { title: `${RATES_PAGE.title} | Liberty Bancard`, description: RATES_PAGE.description, ogTemplate: "compare", inSitemap: true },
   "/blog": { title: "Payment Processing Insights | Liberty Bancard", description: "Free guides on processing fees, interchange, PCI, statements, and switching processors — written for business owners.", ogTemplate: "default", inSitemap: true },

@@ -515,9 +515,9 @@ export default function CostQuiz() {
                       </Link>
                     </Button>
                     <Button size="lg" variant="outline" className="gap-2 w-full" asChild>
-                      <a href="tel:9542668214" data-testid="link-quiz-call" onClick={() => trackPhoneCallClick({ sourcePage: "/sales/cost-quiz" })}>
+                      <a href="tel:7863759726" data-testid="link-quiz-call" onClick={() => trackPhoneCallClick({ sourcePage: "/sales/cost-quiz" })}>
                         <Phone className="w-4 h-4" />
-                        Call 954-266-8214
+                        Call 786-375-9726
                       </a>
                     </Button>
                   </div>

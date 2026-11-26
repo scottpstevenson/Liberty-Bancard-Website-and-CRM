@@ -94,14 +94,14 @@ export default function ESignConsent() {
             <section>
               <h2 className="text-xl font-display font-semibold text-foreground mb-3">Your Right to Paper Copies</h2>
               <p>
-                You have the right to receive any document or communication in paper form. To request a paper copy of any electronic document, contact us at <a href="mailto:support@libertybancard.com" className="underline">support@libertybancard.com</a> or call 954-266-8214. We will provide paper copies at no charge; however, we reserve the right to charge a reasonable fee for excessive requests. Requesting a paper copy does not withdraw your consent to electronic communications.
+                You have the right to receive any document or communication in paper form. To request a paper copy of any electronic document, contact us at <a href="mailto:support@libertybancard.com" className="underline">support@libertybancard.com</a> or call 786-375-9726. We will provide paper copies at no charge; however, we reserve the right to charge a reasonable fee for excessive requests. Requesting a paper copy does not withdraw your consent to electronic communications.
               </p>
             </section>
 
             <section>
               <h2 className="text-xl font-display font-semibold text-foreground mb-3">Withdrawing Consent</h2>
               <p className="mb-3">
-                You may withdraw your consent to receive electronic communications at any time by contacting us in writing at <a href="mailto:support@libertybancard.com" className="underline">support@libertybancard.com</a> or by calling 954-266-8214. Please note:
+                You may withdraw your consent to receive electronic communications at any time by contacting us in writing at <a href="mailto:support@libertybancard.com" className="underline">support@libertybancard.com</a> or by calling 786-375-9726. Please note:
               </p>
               <ul className="list-disc pl-6 space-y-1">
                 <li>Withdrawing consent does not affect the legal validity of any electronic signature or document previously executed or delivered.</li>
@@ -114,7 +114,7 @@ export default function ESignConsent() {
             <section>
               <h2 className="text-xl font-display font-semibold text-foreground mb-3">Updating Your Contact Information</h2>
               <p>
-                It is your responsibility to keep your email address, phone number, and mailing address current with Liberty Bancard. If your contact information changes, please update it promptly by contacting us at <a href="mailto:support@libertybancard.com" className="underline">support@libertybancard.com</a> or calling 954-266-8214. We are not responsible for communications that fail to reach you due to outdated contact information.
+                It is your responsibility to keep your email address, phone number, and mailing address current with Liberty Bancard. If your contact information changes, please update it promptly by contacting us at <a href="mailto:support@libertybancard.com" className="underline">support@libertybancard.com</a> or calling 786-375-9726. We are not responsible for communications that fail to reach you due to outdated contact information.
               </p>
             </section>
 
@@ -133,9 +133,9 @@ export default function ESignConsent() {
                   <Mail className="w-4 h-4 shrink-0" />
                   <span>support@libertybancard.com</span>
                 </a>
-                <a href="tel:9542668214" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" onClick={() => trackPhoneCallClick({ sourcePage: "/e-sign-consent" })}>
+                <a href="tel:7863759726" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" onClick={() => trackPhoneCallClick({ sourcePage: "/e-sign-consent" })}>
                   <Phone className="w-4 h-4 shrink-0" />
-                  <span>954-266-8214</span>
+                  <span>786-375-9726</span>
                 </a>
               </div>
             </section>

@@ -220,9 +220,9 @@ export default function ADACompliance() {
                   <Mail className="w-4 h-4 shrink-0" />
                   <span>support@libertybancard.com</span>
                 </a>
-                <a href="tel:9542668214" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" data-testid="link-ada-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/ada-compliance" })}>
+                <a href="tel:7863759726" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" data-testid="link-ada-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/ada-compliance" })}>
                   <Phone className="w-4 h-4 shrink-0" />
-                  <span>954-266-8214</span>
+                  <span>786-375-9726</span>
                 </a>
               </div>
             </section>

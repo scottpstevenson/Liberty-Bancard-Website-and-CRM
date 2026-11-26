@@ -196,9 +196,9 @@ export default function ThanksStatement() {
                 </a>
               </Button>
               <Button size="lg" variant="outline" className="gap-2 bg-transparent border-primary-foreground/30 text-primary-foreground" asChild>
-                <a href="tel:9542668214" data-testid="link-thanks-statement-call" onClick={() => trackPhoneCallClick({ sourcePage: "/thanks-statement" })}>
+                <a href="tel:7863759726" data-testid="link-thanks-statement-call" onClick={() => trackPhoneCallClick({ sourcePage: "/thanks-statement" })}>
                   <Phone className="w-4 h-4" />
-                  Call/Text 954-266-8214
+                  Call/Text 786-375-9726
                 </a>
               </Button>
             </div>

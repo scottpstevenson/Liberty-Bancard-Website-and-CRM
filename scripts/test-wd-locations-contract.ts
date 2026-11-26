@@ -276,7 +276,7 @@ passes("no rendered document carries a forbidden claim", () => {
 passes("no rendered document names an address, office or phone line beyond the company number", () => {
   for (const [p, html] of documents) {
     const phones = new Set(visibleContent(html).match(/\b\d{3}-\d{3}-\d{4}\b/g) ?? []);
-    for (const phone of phones) ensure(phone === "954-266-8214", `${p}: unexpected phone ${phone}`);
+    for (const phone of phones) ensure(phone === "786-375-9726", `${p}: unexpected phone ${phone}`);
   }
 });
 

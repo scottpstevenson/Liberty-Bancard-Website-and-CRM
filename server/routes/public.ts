@@ -2007,7 +2007,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       return res.status(503).type("html").send(
         "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">" +
         "<meta name=\"robots\" content=\"noindex\"><title>Booking unavailable | Liberty Bancard</title></head><body style=\"font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem;\">" +
-        "<h1>Online booking is unavailable right now</h1><p>Reply to the email you received, or call 954-266-8214, and we will find a time.</p></body></html>",
+        "<h1>Online booking is unavailable right now</h1><p>Reply to the email you received, or call 786-375-9726, and we will find a time.</p></body></html>",
       );
     }
     return res.redirect(302, target.widgetUrl);

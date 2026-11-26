@@ -92,7 +92,7 @@ function getRecommendation(goal: string, vertical: string, volume: string, inter
       nextSteps: [
         { label: "Discuss my terminal setup", primary: true, href: FST_INQUIRY_PATH },
         { label: "Also review my current statement", primary: false, href: "/upload-statement?terminal=yes" },
-        { label: "Call us to discuss setup", primary: false, href: "tel:9542668214" },
+        { label: "Call us to discuss setup", primary: false, href: "tel:7863759726" },
       ],
     };
   }
@@ -118,7 +118,7 @@ function getRecommendation(goal: string, vertical: string, volume: string, inter
       urgency: FUNDING_NOTE,
       nextSteps: [
         { label: "Upload statement to start review", primary: true, href: "/upload-statement" },
-        { label: "Call us about funding issues", primary: false, href: "tel:9542668214" },
+        { label: "Call us about funding issues", primary: false, href: "tel:7863759726" },
       ],
     };
   }
@@ -130,7 +130,7 @@ function getRecommendation(goal: string, vertical: string, volume: string, inter
     urgency: claimText("review.process.summary"),
     nextSteps: [
       { label: "Upload statement for free review", primary: true, href: "/upload-statement" },
-      { label: "Talk to someone first", primary: false, href: "tel:9542668214" },
+      { label: "Talk to someone first", primary: false, href: "tel:7863759726" },
     ],
   };
 }
@@ -332,7 +332,7 @@ function GetStartedQuiz() {
                     <CardContent className="p-4 text-center">
                       <Phone className="w-8 h-8 text-primary mx-auto mb-2" />
                       <p className="text-sm font-medium text-foreground">Real Human Support</p>
-                      <p className="text-xs text-muted-foreground">954-266-8214</p>
+                      <p className="text-xs text-muted-foreground">786-375-9726</p>
                     </CardContent>
                   </Card>
                 </div>

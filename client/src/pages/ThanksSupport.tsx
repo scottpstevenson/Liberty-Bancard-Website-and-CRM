@@ -44,9 +44,9 @@ export default function ThanksSupport() {
             )}
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
               <Button size="lg" variant="secondary" className="gap-2" asChild>
-                <a href="tel:9542668214" data-testid="link-thanks-support-call" onClick={() => trackPhoneCallClick({ sourcePage: "/thanks-support" })}>
+                <a href="tel:7863759726" data-testid="link-thanks-support-call" onClick={() => trackPhoneCallClick({ sourcePage: "/thanks-support" })}>
                   <Phone className="w-4 h-4" />
-                  Terminal down? Call 954-266-8214
+                  Terminal down? Call 786-375-9726
                 </a>
               </Button>
             </div>

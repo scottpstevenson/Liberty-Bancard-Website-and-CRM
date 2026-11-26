@@ -167,7 +167,7 @@ export default function CaliforniaPrivacy() {
               <p className="mb-3">You may submit a verifiable consumer request by:</p>
               <ul className="list-disc pl-6 space-y-2">
                 <li>Emailing <a href="mailto:privacy@libertybancard.com" className="underline">privacy@libertybancard.com</a> with the subject "California Privacy Request"</li>
-                <li>Calling 954-266-8214</li>
+                <li>Calling 786-375-9726</li>
                 <li>Visiting our <Link href="/do-not-sell" className="underline">Do Not Sell or Share</Link> page</li>
               </ul>
               <p className="mt-3">
@@ -228,9 +228,9 @@ export default function CaliforniaPrivacy() {
                   <Mail className="w-4 h-4 shrink-0" />
                   <span>privacy@libertybancard.com</span>
                 </a>
-                <a href="tel:9542668214" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" data-testid="link-california-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/california-privacy" })}>
+                <a href="tel:7863759726" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" data-testid="link-california-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/california-privacy" })}>
                   <Phone className="w-4 h-4 shrink-0" />
-                  <span>954-266-8214</span>
+                  <span>786-375-9726</span>
                 </a>
               </div>
             </section>

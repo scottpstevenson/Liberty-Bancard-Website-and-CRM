@@ -93,7 +93,7 @@ export default function MerchantPolicies() {
                 Merchants may request cancellation of their processing account at any time. To initiate cancellation:
               </p>
               <ol className="list-decimal pl-6 space-y-1">
-                <li>Submit a written cancellation request via email to <a href="mailto:support@libertybancard.com" className="underline">support@libertybancard.com</a> or by calling 954-266-8214.</li>
+                <li>Submit a written cancellation request via email to <a href="mailto:support@libertybancard.com" className="underline">support@libertybancard.com</a> or by calling 786-375-9726.</li>
                 <li>Include your business name, merchant ID number (MID), and the requested closure date.</li>
                 <li>Liberty Bancard will confirm receipt and process the request within 5-10 business days.</li>
                 <li>Return any equipment provided under the free terminal program within 30 days of account closure.</li>
@@ -146,9 +146,9 @@ export default function MerchantPolicies() {
                   <Mail className="w-4 h-4 shrink-0" />
                   <span>support@libertybancard.com</span>
                 </a>
-                <a href="tel:9542668214" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" onClick={() => trackPhoneCallClick({ sourcePage: "/merchant-policies" })}>
+                <a href="tel:7863759726" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" onClick={() => trackPhoneCallClick({ sourcePage: "/merchant-policies" })}>
                   <Phone className="w-4 h-4 shrink-0" />
-                  <span>954-266-8214</span>
+                  <span>786-375-9726</span>
                 </a>
               </div>
             </section>

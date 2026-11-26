@@ -611,7 +611,7 @@ function getTerminalInquiryHtml(): string {
         ${TERMINAL_INQUIRY_PAGE.asks.map((item) => `<li><span class="check-icon">✓</span>${item}</li>`).join("\n        ")}
       </ul>
       <p class="ssr-card-text" style="text-align:center;margin-top:1.5rem;">${TERMINAL_INQUIRY_PAGE.asksNote}</p>
-      <p class="ssr-card-text" style="text-align:center;">${TERMINAL_INQUIRY_PAGE.phoneLead} <a href="tel:9542668214">954-266-8214</a></p>
+      <p class="ssr-card-text" style="text-align:center;">${TERMINAL_INQUIRY_PAGE.phoneLead} <a href="tel:7863759726">786-375-9726</a></p>
     </div>
   </section>`;
 

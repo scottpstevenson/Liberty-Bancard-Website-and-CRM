@@ -18,7 +18,7 @@ import { ticketComments, tickets, type Ticket } from "@shared/schema";
 import { inboundShortRef } from "./inbound-request-authority";
 
 export const SUPPORT_RECEIPT_AUTHOR = "Liberty Bancard Support";
-export const SUPPORT_PHONE_DISPLAY = "954-266-8214";
+export const SUPPORT_PHONE_DISPLAY = "786-375-9726";
 
 /**
  * Factual receipt wording. It states what is true when the request is saved: it was received, it has a reference, and

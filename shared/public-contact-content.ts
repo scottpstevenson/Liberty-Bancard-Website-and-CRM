@@ -40,7 +40,7 @@ export const ABOUT_CONTACT_BOOKING_LABEL = "Book a processing conversation";
 
 /** Verified channels only. Each is a real destination; none states hours, response time or text capability. */
 export const PUBLIC_CONTACT_CHANNELS = {
-  phone: { label: "Call 954-266-8214", display: "954-266-8214", href: "tel:+19542668214" },
+  phone: { label: "Call 786-375-9726", display: "786-375-9726", href: "tel:+17863759726" },
   email: { label: "support@libertybancard.com", href: "mailto:support@libertybancard.com" },
   booking: { label: ABOUT_CONTACT_BOOKING_LABEL, href: "https://libertybancard.com/book" },
 } as const;

@@ -145,7 +145,7 @@ function renderCompareHtml(data: CompareEntry): string {
           <p>Upload your ${data.name} statement and we'll show you a line-by-line comparison with the inputs used. Free, no obligation.</p>
           <div class="ssr-cta-buttons">
             <a href="/upload-statement" class="ssr-btn-primary">📤 Upload Statement — Free Review</a>
-            <a href="tel:9542668214" class="ssr-btn-outline">📞 Call (954) 266-8214</a>
+            <a href="tel:7863759726" class="ssr-btn-outline">📞 Call (786) 375-9726</a>
           </div>
         </div>
       </div>

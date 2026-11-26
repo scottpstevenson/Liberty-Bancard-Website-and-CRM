@@ -278,16 +278,16 @@ export default function UploadStatement() {
 
   const unresolvedMessage = (reason: string): string => {
     if (reason === "restored")
-      return "A previous request in this browser session was not confirmed, and it may have been saved. Choose the same statement and press Request my review again to finish it. It will not create a duplicate. Prefer to check first? Call us at 954-266-8214.";
+      return "A previous request in this browser session was not confirmed, and it may have been saved. Choose the same statement and press Request my review again to finish it. It will not create a duplicate. Prefer to check first? Call us at 786-375-9726.";
     if (reason === "different_request_pending")
-      return "An earlier request from this session was not confirmed, and it may have been saved. Your changed details or file were not sent. Check the earlier request, call us at 954-266-8214, or start a new request on purpose.";
+      return "An earlier request from this session was not confirmed, and it may have been saved. Your changed details or file were not sent. Check the earlier request, call us at 786-375-9726, or start a new request on purpose.";
     if (reason === "mismatch")
-      return "We could not match this browser to the earlier request, so we cannot say whether it was saved. Call us at 954-266-8214 to confirm, or start a new request on purpose.";
+      return "We could not match this browser to the earlier request, so we cannot say whether it was saved. Call us at 786-375-9726 to confirm, or start a new request on purpose.";
     if (reason === "rate_limited")
       return "Too many submissions — please wait a few minutes and try again.";
     if (reason === "network")
       return "We couldn't confirm your request. Check your connection and press Request my review again. It will not create a duplicate.";
-    return "We couldn't confirm that your statement was saved. Press Request my review again to finish it (it will not create a duplicate), or call us at 954-266-8214.";
+    return "We couldn't confirm that your statement was saved. Press Request my review again to finish it (it will not create a duplicate), or call us at 786-375-9726.";
   };
 
   const rejectedMessage = (): string | null => {

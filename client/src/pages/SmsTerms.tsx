@@ -56,7 +56,7 @@ export default function SmsTerms() {
               </p>
               <ul className="list-disc pl-6 space-y-1">
                 <li><strong>Reply STOP:</strong> Text STOP, QUIT, CANCEL, END, or UNSUBSCRIBE to any message from Liberty Bancard. You will receive a one-time confirmation message and no further messages will be sent.</li>
-                <li><strong>Contact Us:</strong> Call 954-266-8214 or email <a href="mailto:support@libertybancard.com" className="underline">support@libertybancard.com</a> to request removal from our SMS list.</li>
+                <li><strong>Contact Us:</strong> Call 786-375-9726 or email <a href="mailto:support@libertybancard.com" className="underline">support@libertybancard.com</a> to request removal from our SMS list.</li>
               </ul>
               <p className="mt-3">
                 After opting out, you may still receive a single confirmation message. If you wish to re-enroll, you may text START or re-submit a consent form on our website.
@@ -66,7 +66,7 @@ export default function SmsTerms() {
             <section>
               <h2 className="text-xl font-display font-semibold text-foreground mb-3">Help &amp; Support</h2>
               <p>
-                For help or questions about our SMS program, text HELP to any Liberty Bancard message, call 954-266-8214, or email <a href="mailto:support@libertybancard.com" className="underline">support@libertybancard.com</a>. Our support team is available Monday through Friday, 9 AM - 6 PM ET.
+                For help or questions about our SMS program, text HELP to any Liberty Bancard message, call 786-375-9726, or email <a href="mailto:support@libertybancard.com" className="underline">support@libertybancard.com</a>. Our support team is available Monday through Friday, 9 AM - 6 PM ET.
               </p>
             </section>
 
@@ -121,9 +121,9 @@ export default function SmsTerms() {
                   <Mail className="w-4 h-4 shrink-0" />
                   <span>support@libertybancard.com</span>
                 </a>
-                <a href="tel:9542668214" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" onClick={() => trackPhoneCallClick({ sourcePage: "/sms-terms" })}>
+                <a href="tel:7863759726" className="flex items-center gap-2 text-foreground hover:text-primary transition-colors" onClick={() => trackPhoneCallClick({ sourcePage: "/sms-terms" })}>
                   <Phone className="w-4 h-4 shrink-0" />
-                  <span>954-266-8214</span>
+                  <span>786-375-9726</span>
                 </a>
               </div>
             </section>

@@ -93,7 +93,7 @@ export function getOrganizationSchema(): StructuredData {
     description: "Liberty Bancard provides statement-based payment processing for businesses, with a free review that explains your current charges and your options.",
     contactPoint: {
       "@type": "ContactPoint",
-      telephone: "+1-954-266-8214",
+      telephone: "+1-786-375-9726",
       contactType: "sales",
       areaServed: "US",
       availableLanguage: "English",

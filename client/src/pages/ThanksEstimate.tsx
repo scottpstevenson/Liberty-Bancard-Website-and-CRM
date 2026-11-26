@@ -182,8 +182,8 @@ export default function ThanksEstimate() {
         <section className="bg-muted/30 py-12" data-testid="section-thanks-estimate-call">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <p className="text-sm text-muted-foreground mb-2">Need help now?</p>
-            <a href="tel:9542668214" className="text-lg font-semibold text-primary" data-testid="link-thanks-estimate-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/thanks-estimate" })}>
-              Call/Text 954-266-8214
+            <a href="tel:7863759726" className="text-lg font-semibold text-primary" data-testid="link-thanks-estimate-phone" onClick={() => trackPhoneCallClick({ sourcePage: "/thanks-estimate" })}>
+              Call/Text 786-375-9726
             </a>
           </div>
         </section>

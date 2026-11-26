@@ -59,14 +59,14 @@ function AIChatPanel({ department, context }: { department: string; context: str
       });
       const data = await res.json();
       if (data?.error) {
-        setMessages(prev => [...prev, { role: "assistant", content: data.message || "The AI assistant is temporarily unavailable. Please try again later or call us at 954-266-8214." }]);
+        setMessages(prev => [...prev, { role: "assistant", content: data.message || "The AI assistant is temporarily unavailable. Please try again later or call us at 786-375-9726." }]);
       } else {
         setMessages(prev => [...prev, { role: "assistant", content: data.response || "No response generated." }]);
       }
     } catch {
       setMessages(prev => [
         ...prev,
-        { role: "assistant", content: "Sorry, I encountered an error. Please try again or call us at 954-266-8214." },
+        { role: "assistant", content: "Sorry, I encountered an error. Please try again or call us at 786-375-9726." },
       ]);
     } finally {
       setIsLoading(false);
@@ -177,7 +177,7 @@ function CallbackPanel() {
     // Only a confirmed save shows success; a recoverable (202), unreadable or failed response keeps the same intent/key.
     const outcome = await intake.submit({ name, phone, bestTime: "ASAP" });
     if (outcome.kind === "rejected") {
-      toast({ title: "Something went wrong", description: "Please try calling us at 954-266-8214.", variant: "destructive" });
+      toast({ title: "Something went wrong", description: "Please try calling us at 786-375-9726.", variant: "destructive" });
     }
   };
 
@@ -224,8 +224,8 @@ function CallbackPanel() {
         Request Callback
       </Button>
       <div className="text-center space-y-1">
-        <a href="tel:9542668214" className="text-sm text-primary font-medium" data-testid="help-call-direct" onClick={() => trackPhoneCallClick({ sourcePage: "/help-center" })}>
-          Or call 954-266-8214
+        <a href="tel:7863759726" className="text-sm text-primary font-medium" data-testid="help-call-direct" onClick={() => trackPhoneCallClick({ sourcePage: "/help-center" })}>
+          Or call 786-375-9726
         </a>
         <p className="text-xs text-muted-foreground">Mon–Fri 9am–6pm ET</p>
       </div>
@@ -326,9 +326,9 @@ export function HelpCenter({ context, department, className }: HelpCenterProps) 
                     </a>
                   </Button>
                   <Button variant="outline" className="w-full max-w-xs gap-2 mt-2" data-testid="help-book-call-btn" asChild>
-                    <a href="tel:9542668214" onClick={() => trackPhoneCallClick({ sourcePage: "/help-center" })}>
+                    <a href="tel:7863759726" onClick={() => trackPhoneCallClick({ sourcePage: "/help-center" })}>
                       <Phone className="w-4 h-4" />
-                      Call to Schedule: 954-266-8214
+                      Call to Schedule: 786-375-9726
                     </a>
                   </Button>
                   <Button variant="outline" className="w-full max-w-xs gap-2 mt-2" data-testid="help-book-email-btn" asChild>

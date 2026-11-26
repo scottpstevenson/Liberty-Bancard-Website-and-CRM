@@ -136,9 +136,9 @@ export default function ProposalViewer() {
             This proposal link may have expired or is invalid. Please contact us for a new proposal.
           </p>
           <Button className="gap-2" data-testid="button-call-us" asChild>
-            <a href="tel:9542668214" onClick={() => trackPhoneCallClick({ sourcePage: "/proposal" })}>
+            <a href="tel:7863759726" onClick={() => trackPhoneCallClick({ sourcePage: "/proposal" })}>
               <Phone className="w-4 h-4" />
-              Call 954-266-8214
+              Call 786-375-9726
             </a>
           </Button>
         </div>
@@ -378,9 +378,9 @@ export default function ProposalViewer() {
 
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <Button size="lg" className="gap-2 bg-sky-600 hover:bg-sky-700 w-full sm:w-auto" asChild>
-                <a href="tel:9542668214" data-testid="link-proposal-call" onClick={() => trackPhoneCallClick({ sourcePage: "/proposal" })}>
+                <a href="tel:7863759726" data-testid="link-proposal-call" onClick={() => trackPhoneCallClick({ sourcePage: "/proposal" })}>
                   <Phone className="w-4 h-4" />
-                  Call 954-266-8214
+                  Call 786-375-9726
                 </a>
               </Button>
               <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto" asChild>

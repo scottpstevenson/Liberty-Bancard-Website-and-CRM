@@ -1236,7 +1236,7 @@ family("w-b-design-consumers", () => {
     };
     ensure(intents.length === 3, "three intent cards expected");
     for (const i of intents) ensure(expected[i.id]?.[0] === i.label && expected[i.id]?.[1] === i.href, `intent ${i.id} is not the specified label and destination`);
-    ensure(/PUBLIC_CONTACT_CHANNELS/.test(source) && PUBLIC_CONTACT_CHANNELS.phone.href === "tel:+19542668214" && PUBLIC_CONTACT_CHANNELS.email.href === "mailto:support@libertybancard.com", "phone or email channel missing or not read from the shared contact channels");
+    ensure(/PUBLIC_CONTACT_CHANNELS/.test(source) && PUBLIC_CONTACT_CHANNELS.phone.href === "tel:+17863759726" && PUBLIC_CONTACT_CHANNELS.email.href === "mailto:support@libertybancard.com", "phone or email channel missing or not read from the shared contact channels");
     ensure(!/Call\s*\/\s*Text|Text us|text us|SMS/.test(source), "page offers a text channel that has no owner evidence");
     ensure(!/hero-team|team of payment processing professionals/.test(source), "page still claims a team photo with no provenance");
     ensure(!/within \d+|24\/7|same[- ]day|business hours|open (mon|tue)|office address/i.test(source + JSON.stringify(ABOUT_CONTACT_HERO)), "page states hours, response time or address that has no owner evidence");

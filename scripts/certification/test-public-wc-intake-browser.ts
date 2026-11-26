@@ -1066,7 +1066,7 @@ try {
       await reloadPage();
       await until(async () => await present(tid("alert-submit-error")), `${mode}: the reload restores an unconfirmed notice`);
       const notice = await text(tid("text-submit-error"));
-      check(/may have been saved/.test(notice) && /will not create a duplicate/.test(notice) && /954-266-8214/.test(notice) && !(await present(tid("section-upload-success"))), `${mode}: the restored notice says the request may have been saved, promises no duplicate, and gives the phone number`);
+      check(/may have been saved/.test(notice) && /will not create a duplicate/.test(notice) && /786-375-9726/.test(notice) && !(await present(tid("section-upload-success"))), `${mode}: the restored notice says the request may have been saved, promises no duplicate, and gives the phone number`);
       const restored = await storedIntent("statement_upload");
       check(restored?.key === pending!.key, `${mode}: the reload kept the original idempotency key`);
       await settle(1500);
