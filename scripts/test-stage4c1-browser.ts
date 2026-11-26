@@ -111,7 +111,13 @@ try{
   await b.screenshot("campaign-step-as-sent");
   await openCampaignStep(cBad);
   await until(async()=>await count('[data-testid="asset-preview-warning"]')>0,"campaign literal-token warning");
-  check(/estimatedSavings/.test(await text('[data-testid="asset-preview-warning"]'))&&/delivered literally/.test(await text('[data-testid="asset-preview-warning"]')),"A campaign step using {{estimatedSavings}} is flagged: the legacy campaign path would deliver the token literally");
+  const campaignWarnings = await b.evaluate(
+    `Array.from(document.querySelectorAll('[data-testid="asset-preview-warning"]'), warning => warning.textContent ?? "")`,
+  ) as string[];
+  check(
+    campaignWarnings.some(warning => warning.includes("estimatedSavings") && warning.includes("Approval and dispatch are blocked")),
+    "The campaign preview identifies {{estimatedSavings}} and warns that it blocks approval and dispatch",
+  );
   const campAfter=await campCounts();
   check(campAfter.s===campBefore.s&&campAfter.o===campBefore.o&&campAfter.st==="draft"&&campAfter.rev===campBefore.rev,"Previewing a campaign step created no step or message and changed neither its status nor its content revision");
 
