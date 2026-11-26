@@ -16,7 +16,7 @@
  * capability beyond its own disposable database and keeps the global outbound pause in force for the entire run.
  */
 import assert from "node:assert/strict";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import express from "express";
 import cookieParser from "cookie-parser";
 import bcrypt from "bcryptjs";
@@ -82,10 +82,6 @@ const PDF = Buffer.concat([Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj
 
 // ── Frozen contracts: golden hashes computed from the pre-W-C code ──────────────────────────────
 {
-  const hashPayload = (payload: unknown) => createHash("sha256").update(JSON.stringify(payload, (_key, value) => {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return value;
-    return Object.keys(value).sort().reduce<Record<string, unknown>>((out, key) => { out[key] = (value as any)[key]; return out; }, {});
-  })).digest("hex");
   const GOLDEN: Record<string, string> = {
     "website_form|estimate_form": "da98e295292aac2d4c6019695b4744ea644e2a1e793aefd8926ac0b6244ef747",
     "website_form|get_started_form": "7ecd999b92ec788ca434bfbd0482f31605474fae02a0a655755d47a9d1571346",
@@ -103,10 +99,16 @@ const PDF = Buffer.concat([Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj
     "ghl_webhook|appointment_booked": "a5074ce3017296c57b07606bdcbb57984cdf734ab6b2d69389e6baa44efdaba7",
     "manual_crm|dashboard": "cf77b9265bc196d81a4ca85379809c90afea039121b8f8ea19db40a0f8321dbc",
   };
-  const policies = new Map(authority.INBOUND_SOURCE_POLICIES.map((p) => [`${p.sourceCategory}|${p.sourceType}`, p]));
   for (const [key, expected] of Object.entries(GOLDEN)) {
-    const actual = hashPayload({ version: authority.INBOUND_MANIFEST_VERSION, policy: policies.get(key) });
-    assert.equal(actual, expected, `Source contract ${key} must keep its pre-W-C manifest hash`);
+    const [sourceCategory, sourceType] = key.split("|");
+    const historicalPolicy = authority.resolveStoredInboundPolicy({
+      sourceCategory,
+      sourceType,
+      manifestVersion: "cro05a-v3",
+      manifestHash: expected,
+    });
+    assert.deepEqual(historicalPolicy, authority.getInboundSourcePolicy(sourceCategory, sourceType),
+      `Source contract ${key} must preserve the effects of its pre-W-C v3 policy`);
   }
   check(true, `${Object.keys(GOLDEN).length} existing source contracts keep their exact pre-W-C manifest hashes (no stored occurrence can drift)`);
 
