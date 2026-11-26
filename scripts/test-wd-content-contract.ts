@@ -56,6 +56,8 @@ import { getAvailableCompetitorSlugs, renderAlternativesHtml, renderSwitchFromHt
 import { glossaryTerms as GLOSSARY_TERMS, getRelatedTerms } from "../server/data/glossary-terms";
 import { buildTermPageHtml, renderGlossaryText } from "../server/routes/glossary";
 import { helpArticles as HELP_ARTICLES } from "../client/src/lib/help-center-data";
+import { getHelpHtml, getMerchantApplicationHtml, publicPolicyPages } from "../server/ssr/coverage-pages";
+import { getArticlesByCategory, helpCategories } from "../client/src/lib/help-center-data";
 import { allBlogPostsServer } from "../server/ssr/all-blog-posts-server";
 import { allBlogPosts as CLIENT_BLOG_POSTS } from "../client/src/lib/all-blog-data";
 import { BLOG_SHORTER_TITLE_SLUGS, blogDocumentTitle } from "../shared/blog-document-titles";
@@ -1032,7 +1034,7 @@ passes("unknown dynamic public URLs answer with a real 404 through one helper, n
   const route = read("server/routes/ssr-routes.ts");
   ensure(!/status\(404\)\.end\(\)/.test(route), 'a route still sends status(404).end()');
   ensure(!/notFoundHtml\s*\(/.test(route), "the old reflected-path notFoundHtml helper is still present");
-  const helper = route.slice(route.indexOf("function sendPublicNotFound"), route.indexOf("const today"));
+  const helper = route.slice(route.indexOf("function sendPublicNotFound"), route.indexOf("const baseUrl"));
   ensure(/res\.status\(404\)/.test(helper) && /no-store/.test(helper) && /noindex/.test(helper), "the helper does not send 404 + no-store + noindex");
   ensure(!/req\.|path/.test(helper.replace(/Express|isn't/g, "")), "the helper reads the request path");
   for (const marker of ['"/industries/:slug"', '"/compare/:competitor"', '"/alternatives/:competitor"', '"/switch-from/:competitor"']) {
@@ -1047,6 +1049,41 @@ negative("a not-found document with a canonical URL and no noindex", () => {
 });
 negative("a handler that ends an unknown URL with an empty 404 body", () => {
   ensure(!/status\(404\)\.end\(\)/.test("if (!ok) return res.status(404).end();"), "empty 404 present");
+});
+
+passes("the reviewed articles each have crawlable server and browser content", () => {
+  for (const slug of [
+    "best-payment-processing-restaurants-2025",
+    "how-much-does-credit-card-processing-cost",
+    "what-is-interchange-plus-pricing",
+    "understanding-chargebacks-prevention-response-recovery",
+  ]) {
+    const server = allBlogPostsServer.find(post => post.slug === slug);
+    const client = CLIENT_BLOG_POSTS.find(post => post.slug === slug);
+    ensure(server !== undefined && server === client, `/blog/${slug} does not share the published article source`);
+  }
+});
+
+passes("coverage pages render a single H1 and their public canonical", () => {
+  const pages = [
+    { path: "/help", html: getHelpHtml() },
+    ...helpCategories.flatMap(category => [
+      { path: `/help/${category.slug}`, html: getHelpHtml(category.slug) },
+      ...getArticlesByCategory(category.slug).map(article => ({
+        path: `/help/${category.slug}/${article.slug}`,
+        html: getHelpHtml(category.slug, article.slug),
+      })),
+    ]),
+    ...publicPolicyPages.map(page => ({ path: page.path, html: page.render() })),
+    { path: "/merchant-application", html: getMerchantApplicationHtml() },
+  ];
+  for (const { path, html } of pages) {
+    ensure(html?.includes(`<link rel="canonical" href="https://libertybancard.com${path}"`), `${path} canonical missing`);
+    ensure((html?.match(/<h1[\s>]/g) ?? []).length === 1, `${path} must have one H1`);
+    ensure(!html?.includes("widgets.leadconnectorhq.com"), `${path} unexpectedly loads the chat widget`);
+  }
+  ensure(getHelpHtml("missing") === undefined && getHelpHtml("getting-started", "managing-chargebacks") === undefined,
+    "a missing or miscategorized help article received an indexable document");
 });
 
 // ── Report ───────────────────────────────────────────────────────────────────

@@ -1,3 +1,4 @@
+import { blogPosts as clientBlogPosts } from "../../client/src/lib/blog-data";
 import type { BlogPost, BlogSection } from "./blog-ssr-data";
 
 const blogPosts: BlogPost[] = [
@@ -535,9 +536,18 @@ const blogPosts7: BlogPost[] = [
   },
 ];
 
+// Publish the reviewed browser articles from the same content source in both renderers.
+export const COVERAGE_ARTICLE_SLUGS: ReadonlySet<string> = new Set([
+  "best-payment-processing-restaurants-2025",
+  "how-much-does-credit-card-processing-cost",
+  "what-is-interchange-plus-pricing",
+  "understanding-chargebacks-prevention-response-recovery",
+]);
+
 export const allBlogPostsServer: BlogPost[] = [
   ...blogPosts,
   ...blogPosts7,
+  ...clientBlogPosts.filter(post => COVERAGE_ARTICLE_SLUGS.has(post.slug)),
 ];
 
 export function getBlogPostBySlug(slug: string): BlogPost | undefined {

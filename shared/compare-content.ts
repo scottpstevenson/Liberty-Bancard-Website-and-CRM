@@ -269,6 +269,19 @@ export function getCompareEntry(slug: string): CompareEntry | null {
   return Object.prototype.hasOwnProperty.call(COMPARE_ENTRIES, slug) ? COMPARE_ENTRIES[slug] : null;
 }
 
+export const SQUARE_DECISION_GUIDE = {
+  heading: "What to check before switching from Square",
+  items: [
+    "Take one full month of Square activity. Separate in-person, online and keyed payments, and include any software or equipment charges you pay separately.",
+    "List the Square features your staff rely on, including inventory, saved cards, invoices or online ordering. Ask which can move and which need a replacement, then test a sale and refund on the proposed setup.",
+    "Compare the quote with your current costs using the same sales mix. Confirm deposit timing, equipment terms and how you will handle refunds or disputes on earlier sales.",
+  ],
+  links: [
+    { href: "/blog/how-to-switch-payment-processors", label: "Plan a processor switch" },
+    { href: "/blog/interchange-plus-vs-flat-rate", label: "Compare interchange-plus and flat-rate pricing" },
+  ],
+};
+
 export const COMPARE_HERO_DISCLAIMER =
   "Actual cost depends on your statement, card mix, volume, and eligibility. No savings claims without a statement review.";
 

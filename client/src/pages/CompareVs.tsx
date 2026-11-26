@@ -42,6 +42,7 @@ import {
   COMPARE_HERO_DISCLAIMER,
   COMPARE_NEEDS,
   COMPARE_TABLE_FOOTNOTE,
+  SQUARE_DECISION_GUIDE,
   getCompareEntry,
 } from "@shared/compare-content";
 import { describePriceRecord, formatCheckedDate } from "@shared/competitor-pricing";
@@ -296,6 +297,22 @@ export default function CompareVs() {
             </div>
           </div>
         </section>
+
+        {data.slug === "square" && (
+          <section className="bg-background py-10">
+            <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+              <h2 className="public-h2 font-display font-bold text-foreground mb-6">{SQUARE_DECISION_GUIDE.heading}</h2>
+              <ul className="list-disc space-y-3 pl-5 text-muted-foreground">
+                {SQUARE_DECISION_GUIDE.items.map(item => <li key={item}>{item}</li>)}
+              </ul>
+              <ul className="mt-6 space-y-2">
+                {SQUARE_DECISION_GUIDE.links.map(({ href, label }) => (
+                  <li key={href}><Link href={href} className="public-tap inline-flex text-primary underline">{label}</Link></li>
+                ))}
+              </ul>
+            </div>
+          </section>
+        )}
 
         <section className="bg-background py-10" data-testid="section-vs-faq">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">

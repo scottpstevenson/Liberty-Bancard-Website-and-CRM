@@ -4,6 +4,7 @@ import {
   COMPARE_HERO_DISCLAIMER,
   COMPARE_NEEDS,
   COMPARE_TABLE_FOOTNOTE,
+  SQUARE_DECISION_GUIDE,
   getCompareEntry,
   type CompareEntry,
 } from "../../shared/compare-content";
@@ -62,6 +63,15 @@ function renderCompareHtml(data: CompareEntry): string {
     </div>`,
     )
     .join("");
+
+  const squareGuide = data.slug === "square" ? `
+    <section class="ssr-section ssr-section-muted">
+      <div class="ssr-section-inner" style="max-width:48rem;">
+        <h2 class="ssr-section-heading">${SQUARE_DECISION_GUIDE.heading}</h2>
+        <ul class="ssr-check-list">${SQUARE_DECISION_GUIDE.items.map(item => `<li><span class="check-icon">✓</span>${item}</li>`).join("")}</ul>
+        <ul class="ssr-check-list">${SQUARE_DECISION_GUIDE.links.map(({ href, label }) => `<li><a href="${href}" style="text-decoration:underline;">${label}</a></li>`).join("")}</ul>
+      </div>
+    </section>` : "";
 
   const body = `
     <div class="ssr-hero" style="padding-top: 2rem;">
@@ -130,6 +140,8 @@ function renderCompareHtml(data: CompareEntry): string {
         </div>
       </div>
     </section>
+
+    ${squareGuide}
 
     <section class="ssr-section ssr-section-muted">
       <div class="ssr-section-inner">
