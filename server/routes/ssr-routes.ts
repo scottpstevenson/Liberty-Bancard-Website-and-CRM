@@ -36,47 +36,49 @@ import { CITIES, VERTICALS, isValidLocationCombination } from "../ssr/location-d
 import { storage } from "../storage";
 import { renderBlogPostHtml, renderBlogHubHtml } from "../ssr/blog-ssr-data";
 import { renderAlternativesHtml, renderSwitchFromHtml, getAvailableCompetitorSlugs } from "../ssr/competitor-ssr";
-import { allBlogPostsServer } from "../ssr/all-blog-posts-server";
+import { allBlogPostsServer, COVERAGE_ARTICLE_SLUGS } from "../ssr/all-blog-posts-server";
 import type { BlogPost } from "../ssr/blog-ssr-data";
 
-let dbPostsCache: BlogPost[] | null = null;
+let blogPostsCache: BlogPost[] | null = null;
 let dbCacheTime = 0;
 const CACHE_TTL_MS = 60 * 60 * 1000;
 
 async function getAllBlogPosts(): Promise<BlogPost[]> {
   const now = Date.now();
-  if (dbPostsCache && now - dbCacheTime < CACHE_TTL_MS) {
-    return [...allBlogPostsServer, ...dbPostsCache];
+  if (blogPostsCache && now - dbCacheTime < CACHE_TTL_MS) {
+    return blogPostsCache;
   }
 
-  let dbPosts: BlogPost[] = [];
+  const posts = new Map(allBlogPostsServer.map(post => [post.slug, post]));
   try {
     const published = await storage.getGeneratedBlogPosts("published");
-    const staticSlugs = new Set(allBlogPostsServer.map(p => p.slug));
-    dbPosts = published
-      .filter((p: any) => !staticSlugs.has(p.slug))
-      .map((p: any): BlogPost => ({
-        slug: p.slug,
-        title: p.title,
-        excerpt: p.excerpt,
-        category: p.category,
-        author: p.author,
-        readTime: p.readTime,
-        publishDate: p.publishDate,
-        publishedISO: p.publishedISO,
-        modifiedISO: p.modifiedISO,
-        keywords: p.keywords,
-        metaDescription: p.metaDescription,
-        content: p.content,
-        faqs: p.faqs ?? undefined,
-      }));
+    for (const post of published) {
+      // Keep the existing reviewed crawler editions. The four added articles
+      // use the same published override as the browser, when one exists.
+      if (posts.has(post.slug) && !COVERAGE_ARTICLE_SLUGS.has(post.slug)) continue;
+      posts.set(post.slug, {
+        slug: post.slug,
+        title: post.title,
+        excerpt: post.excerpt,
+        category: post.category,
+        author: post.author,
+        readTime: post.readTime,
+        publishDate: post.publishDate,
+        publishedISO: post.publishedISO,
+        modifiedISO: post.modifiedISO,
+        keywords: post.keywords,
+        metaDescription: post.metaDescription,
+        content: post.content as BlogPost["content"],
+        faqs: (post.faqs ?? undefined) as BlogPost["faqs"],
+      });
+    }
   } catch {
-    dbPosts = [];
+    // Static articles remain available when the generated catalog is unavailable.
   }
 
-  dbPostsCache = dbPosts;
+  blogPostsCache = [...posts.values()];
   dbCacheTime = now;
-  return [...allBlogPostsServer, ...dbPosts];
+  return blogPostsCache;
 }
 
 /**
@@ -92,6 +94,13 @@ function sendPublicNotFound(res: Response): void {
 }
 
 const baseUrl = "https://libertybancard.com";
+
+function blogSitemapDate(value: string): string | undefined {
+  if (!/^\d{4}-\d{2}-\d{2}(T|$)/.test(value) || !Number.isFinite(Date.parse(value))) return;
+  const day = value.slice(0, 10);
+  const utc = new Date(`${day}T00:00:00Z`);
+  if (Number.isFinite(utc.getTime()) && utc.toISOString().slice(0, 10) === day) return day;
+}
 
 const COMPETITOR_SLUGS = [
   "square", "stripe", "clover", "toast", "paypal",
@@ -473,9 +482,8 @@ export function registerSsrRoutes(app: Express) {
     xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
     // The /blog index is listed once, in sitemap-core.xml (from shared/seo-routes.ts); this file lists posts only.
     for (const post of posts) {
-      const date = [post.modifiedISO, post.publishedISO]
-        .find(value => /^\d{4}-\d{2}-\d{2}(T|$)/.test(value) && Number.isFinite(Date.parse(value)));
-      const lastmod = date ? `<lastmod>${date.slice(0, 10)}</lastmod>` : "";
+      const date = blogSitemapDate(post.modifiedISO) ?? blogSitemapDate(post.publishedISO);
+      const lastmod = date ? `<lastmod>${date}</lastmod>` : "";
       xml += `  <url><loc>${baseUrl}/blog/${post.slug}</loc>${lastmod}<changefreq>monthly</changefreq><priority>0.7</priority></url>\n`;
     }
     xml += `</urlset>`;

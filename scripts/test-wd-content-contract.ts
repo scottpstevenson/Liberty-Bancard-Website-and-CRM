@@ -1080,6 +1080,7 @@ passes("coverage pages render a single H1 and their public canonical", () => {
   for (const { path, html } of pages) {
     ensure(html?.includes(`<link rel="canonical" href="https://libertybancard.com${path}"`), `${path} canonical missing`);
     ensure((html?.match(/<h1[\s>]/g) ?? []).length === 1, `${path} must have one H1`);
+    ensure(!html?.includes("widgets.leadconnectorhq.com"), `${path} unexpectedly loads the chat widget`);
   }
   ensure(getHelpHtml("missing") === undefined && getHelpHtml("getting-started", "managing-chargebacks") === undefined,
     "a missing or miscategorized help article received an indexable document");

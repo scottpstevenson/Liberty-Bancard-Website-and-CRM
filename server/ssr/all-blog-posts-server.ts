@@ -537,7 +537,7 @@ const blogPosts7: BlogPost[] = [
 ];
 
 // Publish the reviewed browser articles from the same content source in both renderers.
-const coverageArticleSlugs = new Set([
+export const COVERAGE_ARTICLE_SLUGS: ReadonlySet<string> = new Set([
   "best-payment-processing-restaurants-2025",
   "how-much-does-credit-card-processing-cost",
   "what-is-interchange-plus-pricing",
@@ -547,7 +547,7 @@ const coverageArticleSlugs = new Set([
 export const allBlogPostsServer: BlogPost[] = [
   ...blogPosts,
   ...blogPosts7,
-  ...clientBlogPosts.filter(post => coverageArticleSlugs.has(post.slug)),
+  ...clientBlogPosts.filter(post => COVERAGE_ARTICLE_SLUGS.has(post.slug)),
 ];
 
 export function getBlogPostBySlug(slug: string): BlogPost | undefined {

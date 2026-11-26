@@ -36,6 +36,7 @@ function renderPage(metadata: PageMetadata, body: string): string {
     ...metadata,
     title: `${metadata.title} | Liberty Bancard`,
     canonical: metadata.path,
+    includeChatWidget: false,
     body,
   });
 }
