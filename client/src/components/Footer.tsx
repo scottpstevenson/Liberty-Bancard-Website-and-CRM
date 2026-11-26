@@ -180,7 +180,7 @@ export function Footer() {
             <p className="text-primary-foreground/70 text-sm" data-testid="text-footer-copyright">
               &copy; {new Date().getFullYear()} Liberty Bancard. All rights reserved.
             </p>
-            <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("lb:open-cookie-preferences"))} className="public-tap text-sm text-primary-foreground underline underline-offset-4" data-testid="button-cookie-preferences">Cookie preferences</button>
+            <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("lb:open-cookie-preferences"))} className="public-tap min-h-11 text-sm text-primary-foreground underline underline-offset-4" data-testid="button-cookie-preferences">Cookie preferences</button>
             <Link
               href="/do-not-sell"
               className="public-tap inline-flex items-center text-primary-foreground/60 text-sm hover:text-primary-foreground transition-colors underline"
