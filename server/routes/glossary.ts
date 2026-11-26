@@ -297,18 +297,15 @@ function buildHubPageHtml(): string {
 }
 
 function buildSitemapXml(): string {
-  const today = new Date().toISOString().split("T")[0];
   const urls = [
     `  <url>
     <loc>${BASE_URL}/learn</loc>
-    <lastmod>${today}</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>`,
     ...glossaryTerms.map(
       (term) => `  <url>
     <loc>${BASE_URL}/learn/${term.slug}</loc>
-    <lastmod>${today}</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>`

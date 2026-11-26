@@ -1,3 +1,4 @@
+import { merchantApplicationIntro, merchantApplicationSeo, merchantApplicationSteps } from "@shared/merchant-application-content";
 import { useState, useEffect, useRef } from "react";
 import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
@@ -47,7 +48,7 @@ const csrfHeader = (): Record<string, string> => { const t = getCsrfToken(); ret
 
 const DRAFT_KEY = "merchant_app_draft";
 
-const TOTAL_STEPS = 6;
+const TOTAL_STEPS = merchantApplicationSteps.length;
 
 const BUSINESS_TYPES = [
   "Sole Proprietorship",
@@ -85,14 +86,8 @@ const PREFERRED_PROGRAMS = [
 
 const CARD_TYPES = ["Visa", "Mastercard", "Amex", "Discover"];
 
-const stepInfo = [
-  { label: "Business Information", icon: Building2 },
-  { label: "Owner Information", icon: User },
-  { label: "Bank Information", icon: Landmark },
-  { label: "Processing Details", icon: CreditCard },
-  { label: "Equipment & Program", icon: Monitor },
-  { label: "Review & Submit", icon: FileCheck },
-];
+const stepIcons = [Building2, User, Landmark, CreditCard, Monitor, FileCheck] as const;
+const stepInfo = merchantApplicationSteps.map((label, index) => ({ label, icon: stepIcons[index] }));
 
 export default function MerchantApplication() {
   const [currentStep, setCurrentStep] = useState(1);
@@ -1024,11 +1019,7 @@ export default function MerchantApplication() {
 
   return (
     <div className="public-application min-h-screen flex flex-col font-body overflow-x-hidden">
-      <SEO
-        title="Apply for Merchant Payment Processing"
-        description="Complete your merchant application for payment processing with Liberty Bancard. Fast approval, competitive rates, modern terminals."
-        path="/merchant-application"
-      />
+      <SEO {...merchantApplicationSeo} />
       <Navbar />
       <main className="flex-grow public-main-offset">
         <section className="relative overflow-hidden" data-testid="section-application-hero">
@@ -1039,7 +1030,7 @@ export default function MerchantApplication() {
               Merchant <span className="text-sky-400">Application</span>
             </h1>
             <p className="text-white/70" data-testid="text-application-subheadline">
-              Complete your application in 6 steps. Approval is subject to underwriting review.
+              {merchantApplicationIntro}
             </p>
           </div>
         </section>

@@ -26,6 +26,9 @@ import {
 } from "lucide-react";
 import { PublicCTA } from "@/components/public/PublicCTA";
 import {
+  helpCenterHeading,
+  helpCenterIntro,
+  helpCenterSeo,
   helpCategories,
   helpArticles,
   getArticlesByCategory,
@@ -67,10 +70,7 @@ export default function HelpCenter() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <SEO
-        title="Help Center — Payment Processing"
-        description="Find answers to your payment processing questions. Browse articles on account setup, billing, terminals, compliance, and more."
-        path="/help"
-        keywords="help center, knowledge base, support center, payment processing help, merchant support"
+        {...helpCenterSeo}
         breadcrumbs={[{ name: "Help Center", path: "/help" }]}
         structuredData={[
           getFAQSchema(faqItems),
@@ -92,13 +92,13 @@ export default function HelpCenter() {
               className="public-h1 public-h1--page font-bold mb-4"
               data-testid="text-help-heading"
             >
-              How can we help?
+              {helpCenterHeading}
             </h1>
             <p
               className="text-primary-foreground/70 text-lg mb-8 max-w-xl mx-auto"
               data-testid="text-help-subheading"
             >
-              Search our knowledge base or browse by category to find the answers you need.
+              {helpCenterIntro}
             </p>
 
             <div className="relative max-w-lg mx-auto">

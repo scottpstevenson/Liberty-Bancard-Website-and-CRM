@@ -8,16 +8,11 @@ import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, ArrowRight, ChevronRight } from "lucide-react";
 import {
   helpCategories,
+  helpDocumentTitle,
   getArticlesByCategory,
   getArticleBySlug,
 } from "@/lib/help-center-data";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
-
-/** "<name> - Help Center" with the site name stays within the 70-character title budget; a longer one drops the section label. */
-function helpDocumentTitle(name: string): string {
-  const labelled = `${name} - Help Center`;
-  return `${labelled} | Liberty Bancard`.length > 70 ? name : labelled;
-}
 
 export default function HelpArticle() {
   const params = useParams<{ category: string; slug: string }>();

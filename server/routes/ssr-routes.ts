@@ -1,4 +1,6 @@
 import type { Express, Response } from "express";
+import { getHelpHtml, getMerchantApplicationHtml, publicPolicyPages } from "../ssr/coverage-pages";
+import { merchantApplicationSeo } from "../../shared/merchant-application-content";
 import { getIndustryHtml } from "../ssr/industries";
 import { getCompareHtml } from "../ssr/compare";
 import { getLocationHtml, getCityHubHtml } from "../ssr/locations";
@@ -89,7 +91,6 @@ function sendPublicNotFound(res: Response): void {
   res.send(getPublicNotFoundHtml());
 }
 
-const today = () => new Date().toISOString().split("T")[0];
 const baseUrl = "https://libertybancard.com";
 
 const COMPETITOR_SLUGS = [
@@ -128,6 +129,10 @@ export function registerSsrRoutes(app: Express) {
   // to the canonical path so crawlers index only one version.
   app.get("/thanks-application", (_req, res) => {
     res.redirect(301, "/thanks/application");
+  });
+
+  app.get("/rate-comparison", (req, res) => {
+    res.redirect(301, "/compare-rates" + req.url.slice(req.path.length));
   });
 
   // Legal URL redirects: /legal/* → canonical legal page URLs (301).
@@ -213,7 +218,6 @@ export function registerSsrRoutes(app: Express) {
   });
 
   app.get("/sitemap-locations.xml", (_req, res) => {
-    const date = today();
 
     let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
     xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
@@ -221,7 +225,6 @@ export function registerSsrRoutes(app: Express) {
     for (const city of CITIES) {
       xml += `  <url>\n`;
       xml += `    <loc>${baseUrl}/locations/${city.slug}</loc>\n`;
-      xml += `    <lastmod>${date}</lastmod>\n`;
       xml += `    <changefreq>monthly</changefreq>\n`;
       xml += `    <priority>0.7</priority>\n`;
       xml += `  </url>\n`;
@@ -230,7 +233,6 @@ export function registerSsrRoutes(app: Express) {
         if (!isValidLocationCombination(city.slug, vertical.slug)) continue;
         xml += `  <url>\n`;
         xml += `    <loc>${baseUrl}/locations/${city.slug}/${vertical.slug}</loc>\n`;
-        xml += `    <lastmod>${date}</lastmod>\n`;
         xml += `    <changefreq>monthly</changefreq>\n`;
         xml += `    <priority>0.7</priority>\n`;
         xml += `  </url>\n`;
@@ -357,6 +359,30 @@ export function registerSsrRoutes(app: Express) {
     res.send(getIntegrationsHtml());
   });
 
+  app.get(["/help", "/help/:category", "/help/:category/:slug"], (req, res) => {
+    const html = getHelpHtml(req.params.category, req.params.slug);
+    if (!html) return sendPublicNotFound(res);
+    res.setHeader("Cache-Control", PAGE_CACHE);
+    res.send(html);
+  });
+
+  for (const { path, render } of publicPolicyPages) {
+    app.get(path, (_req, res) => {
+      res.setHeader("Cache-Control", PAGE_CACHE);
+      res.send(render());
+    });
+  }
+
+  app.get(merchantApplicationSeo.path, (req, res, next) => {
+    // The browser resolves prefill and draft inputs. Keep query variants out of shared caches.
+    res.setHeader("Cache-Control", "no-store");
+    if (["name", "email", "volume", "token", "prefillToken", "prefill"].some(key => key in req.query)) {
+      res.setHeader("X-Robots-Tag", "noindex, nofollow");
+      return next();
+    }
+    res.send(getMerchantApplicationHtml());
+  });
+
   // /blog and /blog/:slug are handled by the React SPA so they render the
   // full site Navbar (with dropdowns, phone, Book a review call, Upload
   // Statement) and Footer that match other public pages. SEO metadata and
@@ -442,14 +468,15 @@ export function registerSsrRoutes(app: Express) {
 
   app.get("/sitemap-blog.xml", async (_req, res) => {
     const posts = await getAllBlogPosts();
-    const date = today();
 
     let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
     xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
     // The /blog index is listed once, in sitemap-core.xml (from shared/seo-routes.ts); this file lists posts only.
     for (const post of posts) {
-      const lastmod = post.modifiedISO ? post.modifiedISO.split("T")[0] : date;
-      xml += `  <url><loc>${baseUrl}/blog/${post.slug}</loc><lastmod>${lastmod}</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>\n`;
+      const date = [post.modifiedISO, post.publishedISO]
+        .find(value => /^\d{4}-\d{2}-\d{2}(T|$)/.test(value) && Number.isFinite(Date.parse(value)));
+      const lastmod = date ? `<lastmod>${date.slice(0, 10)}</lastmod>` : "";
+      xml += `  <url><loc>${baseUrl}/blog/${post.slug}</loc>${lastmod}<changefreq>monthly</changefreq><priority>0.7</priority></url>\n`;
     }
     xml += `</urlset>`;
 
@@ -458,14 +485,13 @@ export function registerSsrRoutes(app: Express) {
   });
 
   app.get("/sitemap-compare.xml", (_req, res) => {
-    const date = today();
     let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
     xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
     for (const slug of COMPETITOR_SLUGS) {
       // List /compare/<slug> only when that page exists; /compare/:competitor answers 404 for slugs without a comparison page.
-      if (getCompareHtml(slug)) xml += `  <url><loc>${baseUrl}/compare/${slug}</loc><lastmod>${date}</lastmod><changefreq>monthly</changefreq><priority>0.8</priority></url>\n`;
-      xml += `  <url><loc>${baseUrl}/alternatives/${slug}</loc><lastmod>${date}</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>\n`;
-      xml += `  <url><loc>${baseUrl}/switch-from/${slug}</loc><lastmod>${date}</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>\n`;
+      if (getCompareHtml(slug)) xml += `  <url><loc>${baseUrl}/compare/${slug}</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>\n`;
+      xml += `  <url><loc>${baseUrl}/alternatives/${slug}</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>\n`;
+      xml += `  <url><loc>${baseUrl}/switch-from/${slug}</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>\n`;
     }
     xml += `</urlset>`;
 
@@ -474,22 +500,6 @@ export function registerSsrRoutes(app: Express) {
   });
 
   app.get("/sitemap-index.xml", (_req, res) => {
-    const date = today();
-    const sitemaps = [
-      "/sitemap.xml",
-      "/sitemap-blog.xml",
-      "/sitemap-compare.xml",
-      "/sitemap-locations.xml",
-    ];
-
-    let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
-    xml += `<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
-    for (const sm of sitemaps) {
-      xml += `  <sitemap><loc>${baseUrl}${sm}</loc><lastmod>${date}</lastmod></sitemap>\n`;
-    }
-    xml += `</sitemapindex>`;
-
-    res.set("Content-Type", "application/xml");
-    res.send(xml);
+    res.redirect(301, "/sitemap.xml");
   });
 }

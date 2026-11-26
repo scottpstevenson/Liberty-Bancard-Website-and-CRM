@@ -91,12 +91,12 @@ export const INDUSTRY_CONTENT: readonly IndustryContent[] = [
     considerations: [
       { title: "How card types are priced", description: "Debit, credit and rewards cards cost different amounts. Ask how each is charged under the pricing model you are offered." },
       { title: "Equipment terms", description: claimText("equipment.agreement.summary") },
-      { title: "Slow months", description: "Ask whether any monthly minimum or fixed fee applies when sales are low." },
+      { title: "Slow months", description: "Compare a slow month and a busy month for the same store. Ask how any monthly minimum, software subscription or terminal charge appears on each statement." },
       { title: "Disputes and chargebacks", description: "Ask how a chargeback is handled, what it costs and what evidence you will be asked for." },
     ],
     faqs: [
       COMPAT("point of sale or terminals"),
-      { question: "What if I have more than one store?", answer: "Bring a statement for each location if they are billed separately. We will note how each is set up." },
+      { question: "What if I have more than one store?", answer: "Bring a statement for each location if they are billed separately. List the terminals and POS version at each store, and check whether you need separate deposit reports or consolidated reporting." },
       { question: "What equipment can I use?", answer: claimText("equipment.options.summary") },
       CONTRACT,
     ],
@@ -135,9 +135,9 @@ export const INDUSTRY_CONTENT: readonly IndustryContent[] = [
       "Payment processing for healthcare practices: front-desk payments, balances and payment plans. Start with a free statement review.",
     keywords: "healthcare payment processing, medical practice payment processing, medical billing payments, patient payments",
     considerations: [
-      { title: "Front-desk and balance payments", description: "Ask how in-office, phone and online balance payments are priced and reported." },
+      { title: "Front-desk and balance payments", description: "Compare in-office copays, phone payments and online balance payments as separate transaction groups. Use totals and counts by channel, and keep patient identifiers out of the statement review." },
       { title: "Payment plans", description: "If you collect on a schedule, ask how cards are stored and how a failed payment is handled." },
-      { title: "Your billing software", description: "Ask how payment reports reconcile with your practice or billing software, and which fees come from that software." },
+      { title: "Your billing software", description: "Ask to see how a copay, a balance paid after insurance and a partial refund appear in both your payment report and your practice billing software. Confirm who handles reconciliation exceptions." },
       { title: "Your own obligations", description: "Payment card security and patient-record privacy are separate obligations. Ask your compliance advisor what applies to your practice." },
     ],
     faqs: [

@@ -8,7 +8,8 @@ import { z } from "zod";
 import { authStorage } from "../replit_integrations/auth/storage";
 import { contacts, users } from "@shared/schema";
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
-import { INDUSTRY_SLUGS, LOCATION_CITIES, LOCATION_VERTICALS, STATIC_BLOG_SLUGS } from "@shared/blog-slugs";
+import { INDUSTRY_SLUGS } from "@shared/blog-slugs";
+import { getArticlesByCategory, helpCategories } from "../../client/src/lib/help-center-data";
 import { getSerperUsage, isSerperConfigured } from "../services/serper";
 import { calculateQuizBonusFn, calculateRevenuePotentialFn, calculateSwitchabilityFn, calculateUnderwritingConfidenceFn, scoreContact } from "../services/lead-scoring";
 import { importCordataEnrichment, importFullCorevt, isWorkerRunning, startDailyOutreachInBackground, stopDailyOutreachWorker } from "../services/daily-outreach";
@@ -422,15 +423,14 @@ Guidelines:
 
   app.get("/sitemap.xml", async (_req, res) => {
     const baseUrl = "https://libertybancard.com";
-    const today = new Date().toISOString().split("T")[0];
 
     let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
     xml += `<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
-    xml += `  <sitemap><loc>${baseUrl}/sitemap-core.xml</loc><lastmod>${today}</lastmod></sitemap>\n`;
-    xml += `  <sitemap><loc>${baseUrl}/sitemap-blog.xml</loc><lastmod>${today}</lastmod></sitemap>\n`;
-    xml += `  <sitemap><loc>${baseUrl}/sitemap-locations.xml</loc><lastmod>${today}</lastmod></sitemap>\n`;
-    xml += `  <sitemap><loc>${baseUrl}/sitemap-compare.xml</loc><lastmod>${today}</lastmod></sitemap>\n`;
-    xml += `  <sitemap><loc>${baseUrl}/sitemap-glossary.xml</loc><lastmod>${today}</lastmod></sitemap>\n`;
+    xml += `  <sitemap><loc>${baseUrl}/sitemap-core.xml</loc></sitemap>\n`;
+    xml += `  <sitemap><loc>${baseUrl}/sitemap-blog.xml</loc></sitemap>\n`;
+    xml += `  <sitemap><loc>${baseUrl}/sitemap-locations.xml</loc></sitemap>\n`;
+    xml += `  <sitemap><loc>${baseUrl}/sitemap-compare.xml</loc></sitemap>\n`;
+    xml += `  <sitemap><loc>${baseUrl}/sitemap-glossary.xml</loc></sitemap>\n`;
     xml += `</sitemapindex>`;
 
     res.set("Content-Type", "application/xml");
@@ -439,7 +439,6 @@ Guidelines:
 
   app.get("/sitemap-core.xml", async (_req, res) => {
     const baseUrl = "https://libertybancard.com";
-    const today = new Date().toISOString().split("T")[0];
 
     const publicPages: Array<{ url: string; priority: string; changefreq: string }> = [
       { url: "/", priority: "1.0", changefreq: "weekly" },
@@ -494,38 +493,26 @@ Guidelines:
       { url: "/help", priority: "0.7", changefreq: "monthly" },
     ];
 
-    const helpArticles: { category: string; slugs: string[] }[] = [
-      { category: "getting-started", slugs: ["setting-up-your-merchant-account", "running-your-first-transaction", "connecting-your-pos-system", "understanding-your-pricing", "next-day-funding-setup"] },
-      { category: "billing-statements", slugs: ["reading-your-monthly-statement", "understanding-processing-fees", "disputing-a-charge-on-your-statement", "managing-chargebacks", "understanding-refunds-and-credits"] },
-      { category: "technical-support", slugs: ["terminal-troubleshooting", "gateway-setup-configuration", "resolving-batch-settlement-issues", "wifi-and-network-connectivity", "contactless-and-nfc-troubleshooting"] },
-      { category: "account-management", slugs: ["updating-business-information", "adding-users-and-permissions", "changing-your-processing-settings", "adding-a-new-location", "closing-or-pausing-your-account"] },
-      { category: "compliance-security", slugs: ["pci-compliance-basics", "protecting-customer-data", "fraud-prevention-tips", "handling-a-data-breach", "understanding-emv-and-liability-shift"] },
-      { category: "general-faq", slugs: ["what-is-payment-processing", "how-long-does-approval-take", "what-are-interchange-fees", "do-i-need-a-contract", "what-is-a-merchant-id", "can-i-accept-amex", "what-is-a-cash-discount-program", "how-to-read-your-rate", "what-is-next-day-funding", "how-to-switch-processors", "what-is-pci-compliance"] },
-    ];
-
     let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
     xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
 
     for (const page of publicPages) {
       xml += `  <url>\n`;
       xml += `    <loc>${baseUrl}${page.url}</loc>\n`;
-      xml += `    <lastmod>${today}</lastmod>\n`;
       xml += `    <changefreq>${page.changefreq}</changefreq>\n`;
       xml += `    <priority>${page.priority}</priority>\n`;
       xml += `  </url>\n`;
     }
 
-    for (const group of helpArticles) {
+    for (const category of helpCategories) {
       xml += `  <url>\n`;
-      xml += `    <loc>${baseUrl}/help/${group.category}</loc>\n`;
-      xml += `    <lastmod>${today}</lastmod>\n`;
+      xml += `    <loc>${baseUrl}/help/${category.slug}</loc>\n`;
       xml += `    <changefreq>monthly</changefreq>\n`;
       xml += `    <priority>0.6</priority>\n`;
       xml += `  </url>\n`;
-      for (const slug of group.slugs) {
+      for (const article of getArticlesByCategory(category.slug)) {
         xml += `  <url>\n`;
-        xml += `    <loc>${baseUrl}/help/${group.category}/${slug}</loc>\n`;
-        xml += `    <lastmod>${today}</lastmod>\n`;
+        xml += `    <loc>${baseUrl}/help/${category.slug}/${article.slug}</loc>\n`;
         xml += `    <changefreq>monthly</changefreq>\n`;
         xml += `    <priority>0.5</priority>\n`;
         xml += `  </url>\n`;

@@ -1,5 +1,21 @@
 import { claimText } from "@shared/public-claims";
 
+export const helpCenterSeo = {
+  title: "Help Center — Payment Processing",
+  description: "Find answers to your payment processing questions. Browse articles on account setup, billing, terminals, compliance, and more.",
+  path: "/help",
+  keywords: "help center, knowledge base, support center, payment processing help, merchant support",
+};
+
+export const helpCenterHeading = "How can we help?";
+export const helpCenterIntro = "Search our knowledge base or browse by category to find the answers you need.";
+
+/** Keep the document title within 70 characters, including the site name. */
+export function helpDocumentTitle(name: string): string {
+  const labelled = `${name} - Help Center`;
+  return `${labelled} | Liberty Bancard`.length > 70 ? name : labelled;
+}
+
 export interface HelpArticle {
   slug: string;
   title: string;
