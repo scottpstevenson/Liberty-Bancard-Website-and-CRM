@@ -568,10 +568,15 @@ check("lane code never sends through legacy transports and never uses the CR-06 
     assert.doesNotMatch(src, /process\.env\.[A-Z_]*(PROFILE|ENABLED|CAPABILITY)/, `${file} must not read enablement from the environment`);
   }
 });
-check("no checked-in configuration enables the website email capability or opens the lane", () => {
+check("only production selects the reply worker and the website send lane still defaults closed", () => {
   const profile = readFileSync("server/services/background-profile.ts", "utf8");
   assert.match(profile, /"website-email"/);
-  assert.doesNotMatch(readFileSync(".replit", "utf8"), /website-email/i);
+  const config = readFileSync(".replit", "utf8");
+  const sharedProfile = config.match(/^\[userenv\.shared\]\n[^[]*?^BACKGROUND_JOB_PROFILE = "(selective:[^"]+)"$/m)?.[1];
+  const productionProfile = config.match(/^\[userenv\.production\]\n[^[]*?^BACKGROUND_JOB_PROFILE = "(selective:[^"]+)"$/m)?.[1];
+  assert.ok(sharedProfile);
+  assert.doesNotMatch(sharedProfile, /(?:^|[:,])(?:outreach|website-email)(?:,|$)/);
+  assert.equal(productionProfile, `${sharedProfile},website-email`);
   assert.match(readFileSync("migrations/0382_website_email_lifecycle.sql", "utf8"), /status text NOT NULL DEFAULT 'closed'/);
   assert.match(readFileSync("migrations/0382_website_email_lifecycle.sql", "utf8"), /daily_limit integer NOT NULL DEFAULT 0/);
   assert.doesNotMatch(readFileSync("migrations/0382_website_email_lifecycle.sql", "utf8"), /INSERT INTO\s+website_lifecycle_config_revisions/i, "the migration seeds no open revision");
