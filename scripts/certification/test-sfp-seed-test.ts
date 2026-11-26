@@ -141,6 +141,7 @@ const parkedId = Number((await pool.query(`INSERT INTO sequence_enrollments (con
 const snapshot = async () => ({
   contacts: await count("contacts"), enrollments: await count("sequence_enrollments"), intents: await count("cr04_enrollment_intents"),
   sendLog: await count("outbound_send_log"), counters: await count("outbound_send_counters"),
+  communicationEvents: await count("communication_events"),
   consent: await one(`SELECT count(*) c FROM audit_logs WHERE action LIKE 'contact_email_unsubscribed%'`).then(r => Number(r.c)),
   prospect: (await one(`SELECT email_status, opted_out_email, do_not_contact FROM contacts WHERE id=$1`, [prospectId])),
   pause: await one(`SELECT state, reason, epoch::text, actor FROM outbound_pause_control`),
@@ -359,8 +360,38 @@ check(mailforgeCapture.rcpt.length === 1 && mailforgeCapture.rcpt[0].includes(ma
   "The wire message has the exact Sales address, the one staff recipient and the durable Message-ID");
 check(JSON.stringify(await snapshot()) === JSON.stringify(before),
   "The Mailforge seed changes no prospect, sequence or pause state");
+
+const { recordSfpSalesReply } = await import("../../server/services/sfp-sales-reply");
+const gmailAccount = "scott@libertybancard.com";
+process.env.SFP_COLD_REPLY_GMAIL_ACCOUNT = gmailAccount;
+const staffReply = {
+  providerMessageId: "cert-mailforge-staff-reply",
+  threadId: "cert-mailforge-staff-thread",
+  receivedAt: new Date(),
+  recipientHeaders: [mailforgeAddress, "sales@libertybancard.com", gmailAccount],
+  headers: {
+    from: mailbox, subject: "Re: Staff seed", messageId: "<staff-reply@example.test>", inReplyTo: mailforgeSend.receipt.messageId,
+    references: null, autoSubmitted: null, precedence: null, xAutoreply: null, xFailedRecipients: null,
+    contentType: "text/plain", labelIds: ["INBOX"],
+  },
+};
+check(await recordSfpSalesReply(gmailAccount, {
+  ...staffReply, headers: { ...staffReply.headers, from: prospectEmail },
+}, new Date()) === "ignored", "A reply from another mailbox cannot confirm the staff receipt");
+const staffReplyResults = await Promise.all([
+  recordSfpSalesReply(gmailAccount, staffReply, new Date()),
+  recordSfpSalesReply(gmailAccount, staffReply, new Date()),
+]);
+check(staffReplyResults.includes("applied") && staffReplyResults.includes("duplicate"),
+  "Concurrent reads of the forwarded staff reply record exactly one confirmation");
+const seedReplyReceipt = (await seed.readSeedStatus()).receipts.find(value => value.occurrenceId === mailforgeSend.receipt.occurrenceId);
+check(seedReplyReceipt?.replyReceivedAt === staffReply.receivedAt.toISOString(),
+  "Staff seed status shows the forwarded reply was received");
+check(JSON.stringify(await snapshot()) === JSON.stringify(before),
+  "Confirming the reply changes no prospect, sequence, communication event or pause state");
 await seed.revokeSeedMailbox();
 delete process.env.SFP_COLD_SMTP_FROM;
+delete process.env.SFP_COLD_REPLY_GMAIL_ACCOUNT;
 
 // Static census: only the seed service may present a seed capability, and only the mail service may ask the authority for a lease.
 const { execSync } = await import("node:child_process");

@@ -193,6 +193,7 @@ export async function executeSeedSend(input: { packageKey: string; stepOrder: nu
     stepOrder: message.stepOrder, subjectHash: sha256(message.subject), bodyHash: sha256(message.html),
     messageHash: seedMessageHash(message.subject, message.html), previewHash: message.previewHash,
     claimedAt: new Date().toISOString(), finishedAt: null, messageId: null, error: null, actorId: input.actorId,
+    fromAddress: message.fromAddress.toLowerCase(),
   };
   const client = await pool.connect();
   try {

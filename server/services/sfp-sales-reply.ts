@@ -5,6 +5,7 @@ import { recordInboundEventInTx } from "./communication-events";
 import { communicationContactLockKey } from "./communication-contact-lock";
 import { SFP_LAUNCH_SEQUENCE_FAMILY_PREFIX } from "./cro03/sfp-launch-content";
 import { isSfpSalesAddress } from "./sender-policy";
+import { recordSeedReply } from "./sfp-seed-authority";
 import { classifyMailboxMessage, extractAddresses, type MailboxMessageHeaders } from "./website-email-contracts";
 
 function configuredReaderAccount(): string | undefined {
@@ -68,6 +69,9 @@ export async function recordSfpSalesReply(
     ORDER BY send.contact_id, enrollment.id, send.sent_at DESC, send.id DESC
     LIMIT 2
   `);
+  if (!matches.rows.length) {
+    return recordSeedReply({ fromAddress: classification.fromAddress, salesRecipients, messageIds, receivedAt });
+  }
   if (matches.rows.length !== 1) return "ignored";
   const match = matches.rows[0];
   const externalId = createHash("sha256").update(`sfp-gmail:${normalizedAccount}:${message.providerMessageId}`).digest("hex");

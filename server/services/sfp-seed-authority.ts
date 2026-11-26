@@ -32,6 +32,8 @@ export interface SeedReceipt {
   /** sha256 of the exact rendered subject and html the operator approved; the transport recomputes it. */
   messageHash: string; previewHash: string;
   claimedAt: string; finishedAt: string | null; messageId: string | null; error: string | null; actorId: string;
+  fromAddress?: string;
+  replyReceivedAt?: string;
 }
 
 const MAILBOX_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -125,6 +127,34 @@ export async function consumeSeedClaim(receiptKey: string, occurrenceId: string)
     `UPDATE system_settings SET value=jsonb_set(value,'{state}','"sending"'), updated_at=NOW()
       WHERE key=$1 AND value->>'state'='claimed' AND value->>'occurrenceId'=$2`, [receiptKey, occurrenceId]);
   return (result.rowCount ?? 0) === 1;
+}
+
+/** Confirm the staff mailbox's reply on its seed receipt without adding a contact or changing a sequence. */
+export async function recordSeedReply(input: {
+  fromAddress: string; salesRecipients: string[]; messageIds: string[]; receivedAt: Date;
+}): Promise<"applied" | "duplicate" | "ignored"> {
+  const sender = normalizeSeedMailbox(input.fromAddress);
+  if (!sender) return "ignored";
+  const result = await pool.query<{ outcome: "applied" | "duplicate" | "ignored" }>(
+    `WITH candidates AS (
+      SELECT key FROM system_settings
+      WHERE key LIKE 'sfp_seed_test_receipt:%' AND value->>'state'='sent'
+        AND value->>'mailboxHash'=$1 AND value->>'fromAddress'=ANY($2::text[])
+        AND value->>'messageId'=ANY($3::text[]) AND value->>'finishedAt'<=$4
+      LIMIT 2
+    ), matched AS (
+      SELECT min(key) AS key FROM candidates HAVING count(*)=1
+    ), recorded AS (
+      UPDATE system_settings AS receipt
+      SET value=jsonb_set(receipt.value,'{replyReceivedAt}',to_jsonb($4::text)), updated_at=now()
+      FROM matched WHERE receipt.key=matched.key AND NOT (receipt.value ? 'replyReceivedAt')
+      RETURNING receipt.key
+    )
+    SELECT CASE WHEN EXISTS (SELECT 1 FROM recorded) THEN 'applied'
+      WHEN EXISTS (SELECT 1 FROM matched) THEN 'duplicate' ELSE 'ignored' END AS outcome`,
+    [hashSeedMailbox(sender), input.salesRecipients, input.messageIds, input.receivedAt.toISOString()],
+  );
+  return result.rows[0].outcome;
 }
 
 /**
