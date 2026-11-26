@@ -1,4 +1,5 @@
 import { PageTitle } from "@/components/ui/page-header";
+import { SfpStaffEmailTest } from "@/components/dashboard/SfpStaffEmailTest";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
@@ -533,6 +534,7 @@ export default function CanonicalEnrichment({ embedded = false }: { embedded?: b
             title="Settings & Health"
             description="Jump to the existing system and integration surfaces. The canonical snapshot only reports the contract state and historical totals available to this page."
           />
+          {isAdmin && <SfpStaffEmailTest />}
           <div className="mb-5 rounded-xl border border-border/70 bg-card p-5">
             <div className="flex flex-wrap items-center gap-3">
               {data.nativeContracts.state === "verified" ? (
@@ -620,7 +622,10 @@ export default function CanonicalEnrichment({ embedded = false }: { embedded?: b
                 </p>
               </div>
               <div className="flex flex-col items-start gap-2 sm:items-end">
-                <Badge variant="outline" className="border-primary/25 bg-background/70 px-2.5 py-1 text-primary">{activeView === "backlog" ? "Backlog: status plus privileged commands" : "Read-only status view"}</Badge>
+                <Badge variant="outline" className="border-primary/25 bg-background/70 px-2.5 py-1 text-primary">
+                  {activeView === "backlog" ? "Backlog: status plus privileged commands"
+                    : activeView === "health" && isAdmin ? "Health and admin tools" : "Read-only status view"}
+                </Badge>
                 <span className="text-xs text-muted-foreground">
                   {activeView === "backlog"
                     ? "Backlog shows its own observation time"
