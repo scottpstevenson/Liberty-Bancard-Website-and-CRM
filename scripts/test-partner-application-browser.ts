@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdir, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { SEO_ROUTE_DEFAULTS } from "../shared/seo-routes";
 import { stage3BHttpFixture } from "./fixtures/stage3-b-http";
 import { privateStage3Browser } from "./fixtures/private-stage3-browser";
 import { verifyCandidateIdentity } from "./fixtures/candidate-build-identity";
+import { buildLocalRehearsalEnvironment } from "./local-rehearsal-core";
 
 /**
  * Partner program public journey in a real browser, against the REAL partner handlers and the compiled client.
@@ -23,19 +28,45 @@ import { verifyCandidateIdentity } from "./fixtures/candidate-build-identity";
  */
 const identity = await verifyCandidateIdentity();
 const directory = "generated-artifacts/partner-application-browser";
+const fixtureMeasurementId = "G-FIXTURE123";
 const checks: string[] = [];
-const notExercised: string[] = [];
 const ok = (message: string) => { checks.push(message); console.log(`✓ [PAB-${String(checks.length).padStart(2, "0")}] ${message}`); };
 
-const h = await stage3BHttpFixture(async app => {
-  const { registerPartnersRoutes } = await import("../server/routes/partners.ts");
-  const { registerPartnerProgramRoutes } = await import("../server/routes/partner-program.ts");
-  registerPartnersRoutes(app); registerPartnerProgramRoutes(app);
-  app.use("/api", (_req, res) => res.status(501).json({ message: "Unregistered isolated service" }));
-  const { static: serveStatic } = await import("express");
-  app.use(serveStatic("dist/public"));
-  app.use((_req, res) => res.sendFile("index.html", { root: `${process.cwd()}/dist/public` }));
-});
+const fixtureBuild = await mkdtemp(path.join(tmpdir(), "liberty-partner-browser-"));
+async function startFixture() {
+  try {
+    // Vite inlines the destinations. Compile a separate client so the loopback test
+    // can exercise real consent logic while the verified release artifact stays intact.
+    execFileSync(process.execPath, [
+      "--require", "./scripts/certification-provider-deny-preload.cjs",
+      "node_modules/vite/bin/vite.js", "build", "--outDir", fixtureBuild, "--logLevel", "warn",
+    ], {
+      env: {
+        ...buildLocalRehearsalEnvironment(),
+        NODE_ENV: "production",
+        CERTIFICATION_COMPILER_ONLY: "1",
+        VITE_GA4_MEASUREMENT_ID: fixtureMeasurementId,
+        VITE_GOOGLE_TAG_ID: fixtureMeasurementId,
+        VITE_GOOGLE_ADS_LEAD_CONVERSION: "",
+        VITE_FB_PIXEL_ID: "",
+      },
+      stdio: "inherit",
+    });
+    return await stage3BHttpFixture(async app => {
+      const { registerPartnersRoutes } = await import("../server/routes/partners.ts");
+      const { registerPartnerProgramRoutes } = await import("../server/routes/partner-program.ts");
+      registerPartnersRoutes(app); registerPartnerProgramRoutes(app);
+      app.use("/api", (_req, res) => res.status(501).json({ message: "Unregistered isolated service" }));
+      const { static: serveStatic } = await import("express");
+      app.use(serveStatic(fixtureBuild));
+      app.use((_req, res) => res.sendFile("index.html", { root: fixtureBuild }));
+    });
+  } catch (error) {
+    await rm(fixtureBuild, { recursive: true, force: true });
+    throw error;
+  }
+}
+const h = await startFixture();
 
 type Browser = Awaited<ReturnType<typeof privateStage3Browser>>;
 const browsers: Browser[] = [];
@@ -68,7 +99,8 @@ const active = (browser: Browser) => browser.evaluate(`(()=>{const e=document.ac
   return {id:e.id,tag:e.tagName,type:e.type||null,testid:e.getAttribute('data-testid'),role:e.getAttribute('role'),
     href:e.getAttribute('href'),inHero:!!e.closest('[data-testid="section-partner-hub-hero"]'),focusVisible:e.matches(':focus-visible'),
     ring:cs.outlineStyle!=='none'&&parseFloat(cs.outlineWidth)>0||cs.boxShadow!=='none'}})()`) as Promise<any>;
-const events = async (browser: Browser) => (await browser.evaluate(`(window.dataLayer||[]).map(a=>Array.from(a)).filter(a=>a[0]==='event')`)) as Array<[string, string, Record<string, unknown>]>;
+type AnalyticsCommand = [string, string, Record<string, unknown>];
+const analyticsQueue = (browser: Browser) => browser.evaluate(`(window.dataLayer||[]).map(a=>Array.from(a))`) as Promise<AnalyticsCommand[]>;
 const setConsent = (browser: Browser, analytics: boolean) => browser.evaluate(`(()=>{
   localStorage.setItem('lb_cookie_consent', ${analytics ? "'custom'" : "'essential'"});
   localStorage.setItem('lb_cookie_prefs', JSON.stringify({necessary:true,analytics:${analytics},marketing:false,functional:false}));
@@ -104,7 +136,8 @@ const PII = {
   agent: { name: "Kendall Oyelaran", email: mail("agent"), phone: "786-555-0178", company: "Oyelaran Payments", region: "Florida" },
   zoom: { name: "Zephyr Ashgrove", email: mail("zoom"), phone: "954-555-0166", company: "Ashgrove Advisory" },
 };
-const ATTRIBUTION = "ref=pab9f2c&utm_source=newsletter&utm_medium=email&utm_campaign=fall";
+const CAMPAIGN_QUERY = "utm_source=newsletter&utm_medium=email&utm_campaign=fall";
+const ATTRIBUTION = `ref=pab9f2c&${CAMPAIGN_QUERY}`;
 const ALLOWED_EVENTS = ["partner_path_selected", "partner_application_started", "partner_application_submitted", "partner_calculator_used"];
 const ALLOWED_PROPS = ["event_category", "path", "profession", "source_page", "calculator_path"];
 const applicationFor = async (email: string) => (await h.pool.query(
@@ -117,23 +150,22 @@ try {
   await h.pool.query("UPDATE users SET tour_completed_at=NOW() WHERE id LIKE $1", [h.prefix + "%"]);
   const browser = await open();
 
-  // ── 1. No analytics consent: the tag is configured (consent denied by default) but no funnel event is sent ───────────
+  // ── 1. No analytics consent: the tag stays unconfigured and no event is queued ──────────────────────────────────────
   await browser.navigate("/partners");
   await setConsent(browser, false);
   await browser.navigate(`/partners?${ATTRIBUTION}`);
   await until(browser, `!!document.querySelector('[data-testid="section-partner-hub-hero"]')`, "hub hero");
-  const consentDefault = (await browser.evaluate(`(window.dataLayer||[]).map(a=>Array.from(a)).filter(a=>a[0]==='consent'&&a[1]==='default')`)) as any[];
-  assert.ok(consentDefault.length === 1 && consentDefault[0][2].analytics_storage === "denied", "The analytics queue starts with every consent signal denied");
-  // The measurement id is a build-time value (Vite inlines it). A build without one has an inert tag: consent is still
-  // recorded, but no `js` or `config` entry and no event can ever be queued. State which kind of build was tested.
-  const tagConfigured = (await browser.evaluate(`(window.dataLayer||[]).some(a=>a[0]==='js')`)) as boolean;
-  console.log(tagConfigured ? "Analytics: this build carries a measurement id; the consent-granted event path is exercised" : "Analytics: this build carries NO measurement id; the consent-granted event path cannot run and is reported as NOT EXERCISED");
+  const consentDefault = (await analyticsQueue(browser)).filter(([command, name]) => command === "consent" && name === "default");
+  assert.deepEqual(consentDefault, [["consent", "default", {
+    analytics_storage: "denied", ad_storage: "denied", ad_user_data: "denied", ad_personalization: "denied",
+  }]], "The analytics queue starts with every consent signal denied");
   await browser.click(`[data-testid="section-partner-hub-hero"] a[href^="/partners/referrals"]`);
   await until(browser, `location.pathname==='/partners/referrals'`, "referral journey");
   await until(browser, `!!document.getElementById('partner-referral-fullName')`, "referral form");
   await browser.click("#partner-referral-fullName");
-  assert.deepEqual(await events(browser), [], "Without analytics consent no funnel event is sent");
-  ok(`Without analytics consent every signal starts denied and no funnel event is queued, through a hub click and a form focus${tagConfigured ? "" : " (build has no measurement id, so this alone does not prove the gate)"}`);
+  assert.ok(!(await analyticsQueue(browser)).some(([command]) => command === "config" || command === "event"),
+    "Without analytics consent there is no tag configuration or event after the hub click and form focus");
+  ok("Without analytics consent every signal starts denied and neither tag configuration nor events are queued");
 
   // ── 2. Every hub call-to-action, by real click, lands on its path and keeps ref/UTM values ──────────────────────────
   await setConsent(browser, true);
@@ -239,32 +271,39 @@ try {
   ok("The referral application is completed by real pointer and typing and stored pending, with ref/UTM attribution from the hub");
 
   // ── 4. Analytics with consent: only allowlisted events and properties, no personal or commercial values ──────────────
-  const sent = await events(browser);
-  if (tagConfigured) {
-    const names = sent.map(e => e[1]);
-    for (const name of ["partner_path_selected", "partner_application_started", "partner_application_submitted"]) assert.ok(names.includes(name), `${name} was sent (${names.join(",")})`);
-    assert.equal(names.filter(n => n === "partner_application_started").length, 1, "application_started is sent once per form");
-    assert.equal(names.filter(n => n === "partner_application_submitted").length, 1, "application_submitted is sent once per saved application");
-    for (const [, name, props] of sent) {
-      assert.ok(ALLOWED_EVENTS.includes(name), `${name} is an allowlisted event`);
-      for (const [prop, value] of Object.entries(props)) {
-        assert.ok(ALLOWED_PROPS.includes(prop), `${name} carries only allowlisted properties (${prop})`);
-        assert.ok(typeof value === "string" && /^[a-z0-9_/\-]{1,60}$/.test(value), `${name}.${prop} is a short slug (${String(value)})`);
-      }
-    }
-    const submitted = sent.find(e => e[1] === "partner_application_submitted")![2];
-    assert.deepEqual(submitted, { event_category: "partner_program", path: "referral", profession: "cpa", source_page: "/partners/referrals" }, `application_submitted carries only path, profession and source page (${JSON.stringify(submitted)})`);
-  } else {
-    assert.deepEqual(sent, [], "A build with no measurement id queues no event");
-    notExercised.push("Analytics events with consent granted: this build has no measurement id, so no funnel event can be queued. Not proven here.");
+  const queue = await analyticsQueue(browser);
+  assert.deepEqual(queue.filter(([command]) => command === "config").map(([, id]) => id), [fixtureMeasurementId],
+    "Consent configures only the fixture measurement ID");
+  const events = queue.filter(([command]) => command === "event");
+  assert.ok(events.some(([, name]) => name === "page_view"), "The consented route queues a page view");
+  const partnerEvents = events.filter(([, name]) => name !== "page_view");
+  const names = partnerEvents.map(([, name]) => name);
+  for (const name of ["partner_path_selected", "partner_application_started", "partner_application_submitted"]) {
+    assert.equal(names.filter(event => event === name).length, 1, `${name} is queued once (${names.join(",")})`);
   }
-  const serialized = JSON.stringify(await browser.evaluate(`(window.dataLayer||[]).map(a=>Array.from(a))`));
-  for (const secret of [PII.referral.name, PII.referral.email, PII.referral.phone, PII.referral.company, "Marquette", "pab9f2c", "newsletter", "5550142", PII.referral.network]) {
+  for (const [, name, props] of partnerEvents) {
+    assert.ok(ALLOWED_EVENTS.includes(name), `${name} is an allowlisted event`);
+    const { send_to, page_path, page_title, page_location, ...partnerProps } = props;
+    assert.equal(send_to, fixtureMeasurementId, `${name} routes only to the fixture measurement ID`);
+    assert.ok(page_path === "/partners" || page_path === "/partners/referrals", `${name} has a public partner path`);
+    assert.equal(page_title, SEO_ROUTE_DEFAULTS[page_path].title, `${name} uses the canonical page title`);
+    assert.equal(page_location, `${h.base}${page_path}?${CAMPAIGN_QUERY}`, `${name} includes only allowlisted campaign parameters in its URL`);
+    for (const [prop, value] of Object.entries(partnerProps)) {
+      assert.ok(ALLOWED_PROPS.includes(prop), `${name} carries only allowlisted properties (${prop})`);
+      assert.ok(typeof value === "string" && /^[a-z0-9_/\-]{1,60}$/.test(value), `${name}.${prop} is a short slug (${String(value)})`);
+    }
+  }
+  const submitted = partnerEvents.find(([, name]) => name === "partner_application_submitted")![2];
+  assert.deepEqual(submitted, {
+    event_category: "partner_program", path: "referral", profession: "cpa", source_page: "/partners/referrals",
+    send_to: fixtureMeasurementId, page_path: "/partners/referrals", page_title: SEO_ROUTE_DEFAULTS["/partners/referrals"].title,
+    page_location: `${h.base}/partners/referrals?${CAMPAIGN_QUERY}`,
+  }, "The submitted event carries only the expected partner and public page fields");
+  const serialized = JSON.stringify(queue);
+  for (const secret of [PII.referral.name, PII.referral.email, PII.referral.phone, PII.referral.company, "Marquette", "pab9f2c", "5550142", PII.referral.network]) {
     assert.ok(!serialized.includes(secret), `No analytics event contains ${secret.length > 12 ? "a form value" : secret}`);
   }
-  ok(tagConfigured
-    ? "With analytics consent only the allowlisted funnel events are sent; nothing in the analytics queue carries a name, email, phone, company, referral code or UTM value"
-    : "NOT EXERCISED (build has no measurement id): the consent-granted funnel events. The analytics queue itself holds no name, email, phone, company, referral code or UTM value");
+  ok("With analytics consent the fixture queues allowlisted partner events and a page view, with no applicant data or referral code in the queue");
 
   // ── 5. Sales-agent application with the keyboard alone ──────────────────────────────────────────────────────────────
   await browser.navigate(`/partners?utm_source=keyboard`);
@@ -325,10 +364,10 @@ try {
   assert.deepEqual(a.acquisition, { utm_source: "keyboard" }, "Keyboard-journey attribution is stored");
   await browser.screenshot("agent-success");
   ok(`The sales-agent application is completed with the keyboard alone (${visited.length} Tab stops, visible focus, Space and Enter, no trap) and stored pending`);
-  if (tagConfigured) {
-    const afterAgentEvents = (await events(browser)).filter(e => e[1] === "partner_application_submitted");
-    assert.ok(afterAgentEvents.some(e => e[2].path === "sales_agent" && !("profession" in e[2])), "The sales-agent submit event carries the path and no profession");
-  }
+  const afterAgentEvents = (await analyticsQueue(browser)).filter(([command, name]) => command === "event" && name === "partner_application_submitted");
+  assert.equal(afterAgentEvents.length, 1, "The sales-agent submission queues one event");
+  assert.equal(afterAgentEvents[0][2].path, "sales_agent", "The sales-agent submit event carries the path");
+  assert.ok(!("profession" in afterAgentEvents[0][2]), "The sales-agent submit event has no referral profession");
 
   // ── 6. Reduced motion ───────────────────────────────────────────────────────────────────────────────────────────────
   await browser.call("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
@@ -435,11 +474,15 @@ try {
   ok("Exactly three submissions were made (all 201) and no page raised an uncaught exception");
 
   await writeFile(`${directory}/receipt.json`, JSON.stringify({
-    status: "passed", candidate: { sourceHead: identity.sourceHead, inputHash: identity.inputHash }, checks, notExercised,
-    scope: "Chromium only; real handlers and compiled client; analytics tag exercised only when the build carries a measurement id (reported when not), external hosts blocked; not Safari/WebKit, a real phone or a screen reader",
+    status: "passed", candidate: { sourceHead: identity.sourceHead, inputHash: identity.inputHash }, checks, notExercised: [],
+    scope: "Chromium only; real handlers and a production-mode fixture client with a dummy measurement ID; external hosts blocked; not Safari/WebKit, a real phone or a screen reader",
   }, null, 2));
-  console.log(`Partner application browser: ${checks.length} checks passed${notExercised.length ? `; NOT EXERCISED: ${notExercised.join(" | ")}` : ""}`);
+  console.log(`Partner application browser: ${checks.length} checks passed`);
 } finally {
-  for (const browser of browsers) await browser.close().catch(() => undefined);
-  await h.close();
+  try {
+    for (const browser of browsers) await browser.close().catch(() => undefined);
+    await h.close();
+  } finally {
+    await rm(fixtureBuild, { recursive: true, force: true });
+  }
 }
