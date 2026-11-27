@@ -284,6 +284,30 @@ try {
     check(captured.length === 2, "No further touch is sent to an opted-out contact");
   }
 
+  const capacity = await import("../../server/services/sfp-sender-capacity");
+  process.env.SFP_COLD_ACCOUNT_CAP_ONLY_FOR = SFP_SALES_ADDRESS;
+  await storage.setSystemSetting("outboundDailyEmailCap", 200);
+  const selected = await capacity.readSelectedSender();
+  assert(selected);
+  await pool.query("UPDATE sending_identities SET warmup_status='warming', warmup_started_at=now(), daily_limit=30 WHERE id=$1", [selected.id]);
+  const day = capacity.capacityDay();
+  const senderScope = capacity.senderScope(selected.id);
+  await pool.query(`INSERT INTO outbound_send_counters (date, channel, scope, count)
+    VALUES ($1,'email',$2,35), ($1,'email',$3,198)
+    ON CONFLICT (date, channel, scope) DO UPDATE SET count=EXCLUDED.count`, [day, senderScope, capacity.GLOBAL_COLD_SCOPE]);
+  const before = await capacity.readSenderCapacity();
+  check(before.identityLimit === null && before.identityRemaining === null && before.remaining === 2 && before.limitedBy === "global_ceiling",
+    "Sales uses the remaining account capacity even after exceeding both mailbox limits");
+  const reservations = await Promise.all(Array.from({ length: 6 }, () => capacity.reserveSenderCapacity()));
+  check(reservations.filter(result => result.ok).length === 2
+    && reservations.filter(result => !result.ok && result.reason === "GLOBAL_DAILY_CEILING").length === 4,
+    "Concurrent sends reach exactly the 200-account ceiling");
+  const after = await capacity.readSenderCapacity();
+  check(after.identityUsedByLaunch === 37 && after.globalUsed === 200 && after.remaining === 0,
+    "Account cap violations roll back sender usage and zero capacity remains");
+  await pool.query("UPDATE sending_identities SET is_active=false WHERE id=$1", [selected.id]);
+  const disabled = await capacity.reserveSenderCapacity(new Date(Date.now() + 86_400_000));
+  check(!disabled.ok && disabled.reason === "SENDER_UNUSABLE", "Account-cap-only configuration preserves sender eligibility");
   check(getBlockedCertificationNetworkAttemptCount() === 0, "No provider or external network call was attempted");
   console.log(`PASS SFP launch runner end-to-end (${checks} checks)`);
 } finally {

@@ -430,7 +430,8 @@ export async function computeSfpLaunchInventory(ctx?: LaunchReadContext): Promis
     daily_limit AS "dailyLimit", sent_today AS "sentToday" FROM sending_identities`));
   const usable = identities.filter(isUsableSenderIdentity);
   const senderCapacity = await readSenderCapacity();
-  const capacity = senderCapacity.identityLimit;
+  const capacity = senderCapacity.sender?.usable
+    ? Math.min(senderCapacity.identityLimit ?? senderCapacity.globalCeiling, senderCapacity.globalCeiling) : 0;
   const sentToday = senderCapacity.identityUsedElsewhere + senderCapacity.identityUsedByLaunch;
   const remainingCapacity = senderCapacity.remaining;
   const readyPopulation = summarize("ready_held");
@@ -458,7 +459,8 @@ export async function computeSfpLaunchInventory(ctx?: LaunchReadContext): Promis
       ? "The selected sending address has no sending identity."
       : !senderCapacity.sender.usable
         ? "The selected sending identity is not switched on with a warm or warming state."
-        : `${senderCapacity.sender.emailAddress}: ${senderCapacity.identityRemaining} of ${capacity} remain today for the sender; global cold ceiling leaves ${senderCapacity.globalRemaining} of ${senderCapacity.globalCeiling}; ${senderCapacity.committedNext24h} already-released messages are due within 24 hours; ${remainingCapacity} can still be admitted.`,
+        : `${senderCapacity.sender.emailAddress}: ${senderCapacity.identityLimit === null ? "account cap only"
+          : `${senderCapacity.identityRemaining} of ${senderCapacity.identityLimit} remain for the mailbox`}; account capacity ${senderCapacity.globalRemaining} of ${senderCapacity.globalCeiling}; ${senderCapacity.committedNext24h} already-released messages are due within 24 hours; ${remainingCapacity} can still be admitted.`,
   });
 
   if (ctx) { ctx.phases.senderMs = Date.now() - senderStarted; ctx.phases.current = "done"; }

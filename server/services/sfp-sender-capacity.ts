@@ -3,17 +3,16 @@
  * the launch readiness view and the sequence worker's dispatch reservation.
  *
  * The SFP launch sends through exactly one fixed sender: the cold-outreach address from the sender
- * policy. Capacity is therefore the capacity of THAT sending identity (its own daily limit, minus what
- * other paths already reported for it today, minus what the launch already reserved), bounded by the
- * global cold ceiling. Another identity's allowance can never authorize this sender, and a generous
- * global setting can never lift the identity's own limit.
+ * policy. Its effective capacity is bounded by the global cold ceiling and, when configured, the
+ * remaining daily allowance for that identity. An account-cap-only sender still needs an eligible
+ * identity and reserves against both counters, with the sender counter recording usage.
  *
  * First touches and follow-ups reserve against the same counters. A reservation is released only when
  * the transport proves the message was not accepted; an uncertain outcome keeps the reservation.
  * Days roll over on the UTC date, so a new day is a new counter row.
  */
 import { pool } from "../db";
-import { resolveSfpColdSenderPolicy } from "./sender-policy";
+import { isSfpSalesAddress, resolveSfpColdSenderPolicy } from "./sender-policy";
 import { effectiveSenderDailyLimit, isUsableSenderIdentity } from "./sdr/sender-identity-state";
 
 export const SENDER_COUNTER_CHANNEL = "email";
@@ -39,7 +38,9 @@ export async function readSelectedSender(executor: Pick<typeof pool, "query"> = 
   return { ...row, usable: isUsableSenderIdentity(row) };
 }
 
-function identityDailyLimit(sender: SelectedSender, now: Date): number {
+function identityDailyLimit(sender: SelectedSender, now: Date): number | null {
+  const address = sender.emailAddress.trim().toLowerCase();
+  if (isSfpSalesAddress(address) && address === process.env.SFP_COLD_ACCOUNT_CAP_ONLY_FOR?.trim().toLowerCase()) return null;
   // Preserve an explicit zero ceiling rather than falling back to the native default.
   return Math.max(0, Math.min(sender.dailyLimit, effectiveSenderDailyLimit(sender, now)));
 }
@@ -54,10 +55,11 @@ async function counter(scope: string, day: string): Promise<number> {
 export interface SenderCapacity {
   day: string;
   sender: { id: number; emailAddress: string; usable: boolean } | null;
-  identityLimit: number;
+  /** Null when the selected sender is governed by the account ceiling alone. */
+  identityLimit: number | null;
   identityUsedElsewhere: number;
   identityUsedByLaunch: number;
-  identityRemaining: number;
+  identityRemaining: number | null;
   globalCeiling: number;
   globalUsed: number;
   globalRemaining: number;
@@ -78,7 +80,8 @@ export async function readSenderCapacity(now: Date = new Date()): Promise<Sender
   const identityUsedByLaunch = sender ? await counter(senderScope(sender.id), day) : 0;
   const identityLimit = sender ? identityDailyLimit(sender, now) : 0;
   const identityUsedElsewhere = sender?.sentToday ?? 0;
-  const identityRemaining = sender && sender.usable ? Math.max(0, identityLimit - identityUsedElsewhere - identityUsedByLaunch) : 0;
+  const identityRemaining = identityLimit === null ? null
+    : sender?.usable ? Math.max(0, identityLimit - identityUsedElsewhere - identityUsedByLaunch) : 0;
   const globalRemaining = Math.max(0, globalCeiling - globalUsed);
   const committed = await pool.query(
     `SELECT count(*)::int AS n FROM sequence_enrollments e JOIN follow_up_sequences q ON q.id=e.sequence_id
@@ -86,11 +89,11 @@ export async function readSenderCapacity(now: Date = new Date()): Promise<Sender
         AND (e.next_action_at IS NULL OR e.next_action_at <= $1::timestamptz + INTERVAL '24 hours')
         AND q.sequence_family LIKE 'sfp-v2-cold-%'`, [now.toISOString()]);
   const committedNext24h = Number(committed.rows[0]?.n ?? 0);
-  const hard = Math.min(identityRemaining, globalRemaining);
+  const hard = sender?.usable ? Math.min(identityRemaining ?? globalRemaining, globalRemaining) : 0;
   const remaining = Math.max(0, hard - committedNext24h);
   const limitedBy: SenderCapacity["limitedBy"] = !sender ? "no_selected_sender" : !sender.usable ? "sender_unusable"
     : hard - committedNext24h <= 0 && hard > 0 ? "committed_messages"
-    : identityRemaining <= globalRemaining ? "sender_limit" : "global_ceiling";
+    : identityRemaining !== null && identityRemaining <= globalRemaining ? "sender_limit" : "global_ceiling";
   return {
     day, sender: sender ? { id: sender.id, emailAddress: sender.emailAddress, usable: sender.usable } : null,
     identityLimit, identityUsedElsewhere, identityUsedByLaunch, identityRemaining,
@@ -120,17 +123,22 @@ export async function reserveSenderCapacity(now: Date = new Date()): Promise<Res
       await client.query("ROLLBACK");
       return { ok: false, reason: sender ? "SENDER_UNUSABLE" : "NO_SELECTED_SENDER" };
     }
-    const remaining = identityDailyLimit(sender, now) - sender.sentToday;
-    if (remaining <= 0) {
+    const identityLimit = identityDailyLimit(sender, now);
+    const remaining = identityLimit === null ? null : identityLimit - sender.sentToday;
+    if (remaining !== null && remaining <= 0) {
       await client.query("ROLLBACK");
       return { ok: false, reason: "SENDER_DAILY_LIMIT" };
+    }
+    if (globalCeiling <= 0) {
+      await client.query("ROLLBACK");
+      return { ok: false, reason: "GLOBAL_DAILY_CEILING" };
     }
     const identity = await client.query(
       `INSERT INTO outbound_send_counters (date, channel, scope, count, updated_at)
        VALUES ($1, $2, $3, 1, now())
        ON CONFLICT (date, channel, scope) DO UPDATE
          SET count = outbound_send_counters.count + 1, updated_at = now()
-         WHERE outbound_send_counters.count < $4
+         WHERE $4::int IS NULL OR outbound_send_counters.count < $4
        RETURNING count`,
       [day, SENDER_COUNTER_CHANNEL, senderScope(sender.id), remaining]);
     if (identity.rows.length === 0) { await client.query("ROLLBACK"); return { ok: false, reason: "SENDER_DAILY_LIMIT" }; }

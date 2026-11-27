@@ -263,7 +263,7 @@ interface ReleaseStatus {
   journeys: Record<string, number>; holds: Record<string, number>;
   heldEnrollments: Array<{ id: number; hold: string; holdAt: string | null }>;
   policy: { maxRecipientsPerRelease: number; maxAdmissionWindowHours: number; journeyDays: number };
-  capacity: { identityRemaining: number; identityLimit: number; globalRemaining: number; globalCeiling: number; committedNext24h: number; remaining: number; limitedBy: string; sender: { emailAddress: string; usable: boolean } | null } | null;
+  capacity: { identityRemaining: number | null; identityLimit: number | null; globalRemaining: number; globalCeiling: number; committedNext24h: number; remaining: number; limitedBy: string; sender: { emailAddress: string; usable: boolean } | null } | null;
 }
 interface ReleasePreview {
   commandKey?: string; snapshotHash: string; size: number; dailyCapacityRemaining: number; qualifiedPrimaryRecipients: number;
@@ -330,6 +330,8 @@ function ReleasePanel() {
   const maxSize = status?.policy.maxRecipientsPerRelease ?? 1;
   const maxHours = status?.policy.maxAdmissionWindowHours ?? 72;
   const cap = status?.capacity ?? null;
+  const mailboxCapacity = cap?.identityLimit === null ? "account cap only"
+    : cap ? `${n(cap.identityRemaining ?? 0)} of ${n(cap.identityLimit ?? 0)}` : "";
   const latest = status?.latest ?? null;
   return (
     <div className="mt-3 rounded-xl border border-border/70 bg-card p-4" data-testid="release-panel">
@@ -374,7 +376,7 @@ function ReleasePanel() {
             <div><dt className="inline text-muted-foreground">Journey period: </dt>
               <dd className="inline">{latest ? (latest.revokedAt ? "revoked" : status.live ? `ends ${when(latest.journeyExpiresAt)}` : `ended ${when(latest.journeyExpiresAt)}`) : "none"} ({status.policy.journeyDays} days per release)</dd></div>
             <div><dt className="inline text-muted-foreground">Sender capacity today: </dt>
-              <dd className="inline">{cap ? `${n(cap.remaining)} admittable (${cap.sender?.emailAddress ?? "no sender"}: ${n(cap.identityRemaining)} of ${n(cap.identityLimit)}; global ${n(cap.globalRemaining)} of ${n(cap.globalCeiling)}; ${n(cap.committedNext24h)} already due)` : "unavailable"}</dd></div>
+              <dd className="inline">{cap ? `${n(cap.remaining)} admittable (${cap.sender?.emailAddress ?? "no sender"}: ${mailboxCapacity}; account ${n(cap.globalRemaining)} of ${n(cap.globalCeiling)}; ${n(cap.committedNext24h)} already due)` : "unavailable"}</dd></div>
             <div><dt className="inline text-muted-foreground">Journeys: </dt>
               <dd className="inline">{Object.keys(status.journeys).length === 0 ? "none" : Object.entries(status.journeys).map(([k, v]) => `${JOURNEY_LABELS[k] ?? k}: ${n(v)}`).join(" · ")}</dd></div>
           </dl>
