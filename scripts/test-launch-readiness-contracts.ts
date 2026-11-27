@@ -71,7 +71,7 @@ vm.runInNewContext(bundle.outputFiles[0].text, context);
 const t = context.module.exports;
 t.trackConversion("get_started_submission", undefined, "receipt-denied"); t.compatibilityConversion("get_started_submission", { receipt: "receipt-denied" });
 check(!calls.some(c => c[0] === "event") && pixels.length === 0, "Default denied consent suppresses both conversion entry points");
-t.applyConsentPreferences({ analytics: true, marketing: true });
+t.applyConsentPreferences({ analytics: true, marketing: true, adsWebsiteMeasurement: true });
 t.trackFormSubmission("get_started_submission"); t.trackConversion("get_started_submission", 0, "receipt-one"); t.compatibilityConversion("get_started_submission", { receipt: "receipt-one", email: "never-export@example.test" });
 check(calls.filter(c => c[0] === "event" && c[1] === "generate_lead").length === 1, "One accepted receipt produces exactly one GA4 lead across compatibility callers");
 check(calls.filter(c => c[0] === "event" && c[1] === "conversion").length === 1 && calls.find(c => c[1] === "conversion")[2].send_to === "AW-123456/fixture_label", "Ads conversion uses its explicit destination, never a GA4 measurement ID");
@@ -173,18 +173,43 @@ console.log(`LAUNCH_READINESS_CONTRACTS_PASS ${checks}`);
   const revoked = vendor.filter(v => v[0] === 'event').length;
   api.trackPageView(); api.trackConversion('statement_upload', undefined, 'revoked'); api.trackFormAbandoned('upload_statement');
   check(vendor.filter(v => v[0] === 'event').length === revoked, 'Withdrawal immediately suppresses views, conversions and abandonment diagnostics');
-  check(vendor.filter(v => v[0] === 'consent').every(v => v[2].ad_user_data === 'denied' && v[2].ad_personalization === 'denied'), 'No measurement preference enables contact-data uploading or personalization');
+  check(vendor.filter(v => v[0] === 'consent').every(v => v[2].ad_user_data === 'denied' && v[2].ad_personalization === 'denied'), 'Marketing and offline CRM measurement alone never grant Google website measurement');
 }
 {
   const commands: any[][] = [];
   const scripts: any[] = [];
+  const storage = new Map<string, string>([
+    ["lb_cookie_consent", "custom"],
+    ["lb_cookie_prefs", JSON.stringify({ necessary: true, functional: false, analytics: false, marketing: true, adsMeasurement: true })],
+  ]);
+  const expiredCookies: string[] = [];
   const browser = { URL, URLSearchParams, console, module: { exports: {} as any }, exports: {},
     window: { location: { pathname: "/upload-statement", origin: "https://libertybancard.com", hostname: "libertybancard.com", search: "" },
       gtag: (...args: any[]) => commands.push(args) },
-    document: { cookie: "", referrer: "", head: { appendChild: (script: any) => scripts.push(script) }, createElement: () => ({}), getElementsByTagName: () => [] } };
+    document: { get cookie() { return "_gcl_aw=test; _fbp=meta"; }, set cookie(value: string) { expiredCookies.push(value); },
+      referrer: "", head: { appendChild: (script: any) => scripts.push(script) }, createElement: () => ({}), getElementsByTagName: () => [] },
+    localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) },
+  };
   vm.runInNewContext(bundle.outputFiles[0].text, browser);
   const api = browser.module.exports;
-  api.applyConsentPreferences({ analytics: false, marketing: true });
+  const currentConsent = () => commands.filter(c => c[0] === "consent" && c[1] === "update").at(-1)?.[2];
+  const conversions = () => commands.filter(c => c[0] === "event" && c[1] === "conversion");
+  const legacy = api.getStoredCookieConsent().preferences;
+  api.applyConsentPreferences(legacy);
+  api.trackConversion("statement_upload", undefined, "legacy-receipt");
+  check(legacy.adsWebsiteMeasurement === undefined && currentConsent().ad_storage === "denied" &&
+    currentConsent().ad_user_data === "denied" && conversions().length === 0 &&
+    !scripts.some(script => script.src.includes("/gtag/js?")), "Legacy Marketing and CRM consent cannot load or trigger the Google Ads tag");
+  const websiteOnly = { necessary: true, functional: false, analytics: false, marketing: true, adsWebsiteMeasurement: true };
+  api.saveCookieConsent("custom", websiteOnly);
+  api.applyConsentPreferences(api.getStoredCookieConsent().preferences);
+  api.trackPageView();
+  check(currentConsent().ad_user_data === "granted" && currentConsent().ad_storage === "granted" &&
+    currentConsent().ad_personalization === "denied", "Explicit website measurement persists through consent readback and route tracking");
+  browser.window.location.search = "?gclid=fixture-click";
+  api.captureUTMParams();
+  check(!api.getStoredUTMParams().adsMeasurementConsent && !storage.has("lb_ads_measurement_key"),
+    "Website measurement does not grant reviewed CRM outcome sharing");
   const googleScripts = scripts.filter(script => script.src.includes("/gtag/js?"));
   check(googleScripts.length === 1 && googleScripts[0].src.endsWith("/gtag/js?id=AW-123456"), "Ads-only consent loads the Ads tag without bootstrapping the GA stream");
   api.trackConversion("statement_upload");
@@ -193,5 +218,21 @@ console.log(`LAUNCH_READINESS_CONTRACTS_PASS ${checks}`);
   api.trackConversion("statement_upload", undefined, "ads-only-receipt");
   check(commands.filter(c => c[0] === "event" && c[1] === "conversion").length === 1
     && !commands.some(c => c[1] === "generate_lead"), "An Ads-only save sends one conversion and no GA lead");
+  browser.window.location.pathname = "/dashboard/contacts/42";
+  api.trackPageView();
+  api.trackConversion("statement_upload", undefined, "private-ads-receipt");
+  check(currentConsent().ad_user_data === "denied" && currentConsent().ad_storage === "denied" && conversions().length === 1,
+    "Private routes deny website ad measurement and suppress the conversion even with stored consent");
+  browser.window.location.pathname = "/upload-statement";
+  api.trackPageView();
+  check(currentConsent().ad_user_data === "granted", "Returning to a public route reapplies the stored website measurement choice");
+  api.saveCookieConsent("custom", { ...websiteOnly, adsWebsiteMeasurement: false });
+  api.trackConversion("statement_upload", undefined, "ads-revoked-receipt");
+  check(currentConsent().ad_user_data === "denied" && currentConsent().ad_storage === "denied" && conversions().length === 1 &&
+    expiredCookies.some(c => c.startsWith("_gcl_aw=")) && expiredCookies.every(c => !c.startsWith("_fbp=")),
+    "Website measurement withdrawal stops conversions and clears Google click cookies while retaining Meta preferences");
+  api.saveCookieConsent("custom", { ...websiteOnly, marketing: false });
+  check(currentConsent().ad_user_data === "denied" && currentConsent().ad_storage === "denied",
+    "Website measurement alone cannot override denied Marketing consent");
 }
 console.log(`MEASUREMENT_ROUTE_ACCEPTANCE_PASS total=${checks}`);

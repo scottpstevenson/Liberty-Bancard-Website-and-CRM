@@ -3,28 +3,23 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Link } from "wouter";
 import { Shield, X, Settings, Check } from "lucide-react";
-import { applyConsentPreferences, getStoredCookieConsent, saveCookieConsent } from "@/lib/tracking";
+import { applyConsentPreferences, getStoredCookieConsent, saveCookieConsent, type CookieConsentPreferences } from "@/lib/tracking";
 import { setPublicOverlayFlag } from "@/lib/public-overlay";
-
-type ConsentPreferences = {
-  necessary: boolean;
-  analytics: boolean;
-  marketing: boolean;
-  functional: boolean;
-  adsMeasurement?: boolean;
-};
 
 export function CookieConsent() {
   const [visible, setVisible] = useState(false);
   const [showPrefs, setShowPrefs] = useState(false);
-  const [prefs, setPrefs] = useState<ConsentPreferences>(() => getStoredCookieConsent().preferences);
+  const [prefs, setPrefs] = useState<CookieConsentPreferences>(() => getStoredCookieConsent().preferences);
 
   useEffect(() => {
     const stored = getStoredCookieConsent();
     setPrefs(stored.preferences);
     if (stored.level) {
       applyConsentPreferences(stored.preferences);
-      if(stored.preferences.marketing && stored.preferences.adsMeasurement === undefined){setShowPrefs(true);setVisible(true);}
+      if (stored.preferences.marketing && (stored.preferences.adsWebsiteMeasurement === undefined || stored.preferences.adsMeasurement === undefined)) {
+        setShowPrefs(true);
+        setVisible(true);
+      }
     } else {
       setVisible(true);
     }
@@ -46,7 +41,7 @@ export function CookieConsent() {
   if (!visible) return null;
 
   const acceptAll = () => {
-    const all = { necessary: true, analytics: true, marketing: true, functional: true, adsMeasurement: true };
+    const all = { necessary: true, analytics: true, marketing: true, functional: true, adsWebsiteMeasurement: true, adsMeasurement: true };
     saveCookieConsent("all", all);
     setVisible(false);
   };
@@ -62,7 +57,7 @@ export function CookieConsent() {
     setVisible(false);
   };
 
-  const togglePref = (key: keyof ConsentPreferences) => {
+  const togglePref = (key: keyof CookieConsentPreferences) => {
     if (key === "necessary") return;
     setPrefs((p) => ({ ...p, [key]: !p[key] }));
   };
@@ -78,7 +73,7 @@ export function CookieConsent() {
                 <div>
                   <p className="text-sm font-medium text-foreground mb-1">We value your privacy</p>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    We use cookies and similar technologies to improve your experience, analyze site traffic, personalize content, and measure Google campaign results through reviewed CRM outcomes using ad click identifiers. By clicking "Accept All," you consent to our use of cookies. You can manage your preferences or reject non-essential cookies.{" "}
+                    We use cookies and similar technologies to improve your experience, analyze site traffic, personalize content, and measure Google campaigns. Measurement can include ad click identifiers, website actions, and reviewed CRM outcomes. Choose "Accept All" to allow these uses, manage your preferences, or reject non-essential cookies.{" "}
                     <Link href="/privacy-policy" className="underline">Privacy Policy</Link>{" | "}
                     <Link href="/cookie-policy" className="underline">Cookie Policy</Link>
                   </p>
@@ -104,8 +99,9 @@ export function CookieConsent() {
                     { key: "necessary" as const, label: "Strictly Necessary", desc: "Required for the website to function. Cannot be disabled.", locked: true },
                     { key: "functional" as const, label: "Functional", desc: "Enable enhanced functionality and personalization.", locked: false },
                     { key: "analytics" as const, label: "Analytics", desc: "Help us understand how visitors interact with our website.", locked: false },
-                    { key: "adsMeasurement" as const, label: "Google campaign outcomes", desc: "With Marketing enabled, share ad click identifiers and reviewed CRM outcomes with Google to measure campaigns. No names, emails or phone numbers are shared.", locked: false },
                     { key: "marketing" as const, label: "Marketing", desc: "Used to deliver relevant advertisements and track campaigns.", locked: false },
+                    { key: "adsWebsiteMeasurement" as const, label: "Google website conversion measurement", desc: "With Marketing enabled, allow Google to use ad click identifiers and actions such as submitting an inquiry to measure ads. This tag does not send the contact details you enter.", locked: false },
+                    { key: "adsMeasurement" as const, label: "Google campaign outcomes", desc: "With Marketing enabled, allow Liberty to share ad click identifiers and reviewed CRM outcomes with Google to measure campaigns. No names, emails or phone numbers are shared.", locked: false },
                   ]).map((item) => (
                     <label
                       key={item.key}
