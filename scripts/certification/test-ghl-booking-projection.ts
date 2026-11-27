@@ -105,6 +105,7 @@ try {
 
   const { processGhlBookingConsentChecks } = await import("../../server/services/ghl-booking-consent");
   const { processGhlBookingConfirmationSms } = await import("../../server/services/ghl-booking-sms");
+  const { reconcileGhlBookingCancellations } = await import("../../server/services/ghl-booking-cancellation-sync");
   const { recordAdminAttestation } = await import("../../server/services/ghl-channel-probes");
   const { applyConsentCommand } = await import("../../server/services/consent-authority");
   const form = "fixture-sales-booking-form";
@@ -123,7 +124,8 @@ try {
   const sender = "+13055550101";
   const campaign = "fixture_booking_campaign";
   const sent: Array<Record<string, unknown>> = [];
-  const providerBookings = new Map([[appointmentId, { ...event.appointment, locationId: event.locationId }]]);
+  type ProviderBooking = typeof event.appointment & { locationId: string; dateUpdated?: string };
+  const providerBookings = new Map<string, ProviderBooking>([[appointmentId, { ...event.appointment, locationId: event.locationId }]]);
   globalThis.fetch = async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : input.toString());
     if (url.origin !== "https://services.leadconnectorhq.com") return originalFetch(input, init);
@@ -145,7 +147,7 @@ try {
     if (url.pathname.startsWith(appointmentPath)) {
       senderReads++;
       const appointment = providerBookings.get(url.pathname.slice(appointmentPath.length));
-      assert.ok(appointment, "Sender reads only bookings expressly included in the fixture");
+      if (!appointment) return Response.json({}, { status: 404 });
       const startTime = new Date(Date.parse(appointment.startTime) - 5 * 3_600_000).toISOString().replace("Z", "-05:00");
       return Response.json({ appointment: { ...appointment, startTime } });
     }
@@ -262,7 +264,7 @@ try {
     check((await processGhlBookingConfirmationSms()).checked, 0, "An uncertain attempt cannot be resent by recovery");
     providerRefuses = false;
 
-    await addOptedInBooking("stopped", 3);
+    const stopped = await addOptedInBooking("stopped", 3);
     await applyConsentCommand({
       subject: { type: "contact", id: contact.id }, kind: "opt_out", channel: "sms",
       eventNamespace: "fixture_sms_stop", eventKey: tag, source: "fixture_sms",
@@ -270,6 +272,25 @@ try {
     });
     check((await processGhlBookingConfirmationSms()).held, 1, "A later STOP blocks an already opted-in appointment");
     check(sent.map(value => value.appointmentId), [appointmentId, later.id], "Only authorized fixture attempts reached the provider mock");
+
+    const cancellationTime = new Date(Date.parse(bookedAt) + 60_000).toISOString();
+    const cancelled = { ...event.appointment, locationId: event.locationId, appointmentStatus: "cancelled", dateUpdated: cancellationTime };
+    providerBookings.set(appointmentId, cancelled);
+    providerBookings.set(later.id, { ...later, appointmentStatus: "cancelled", dateUpdated: bookedAt });
+    providerBookings.set(stopped.id, { ...stopped, contactId: "different-contact", appointmentStatus: "cancelled", dateUpdated: cancellationTime });
+    const sweep = await reconcileGhlBookingCancellations();
+    check(sweep.state, "active", "The configured sales calendar can run cancellation recovery");
+    check(sweep.canceled, 1, "Provider polling recovers the one verified cancellation without a webhook");
+    const readStatus = async (id: string) => (await first("SELECT status FROM ghl_appointment_state WHERE appointment_id=$1", [id])).status;
+    check(await readStatus(appointmentId), "canceled", "The CRM shows the recovered booking as canceled");
+    check(await readStatus(later.id), "booked", "An older cancellation does not overwrite a newer booking fact");
+    check(await readStatus(stopped.id), "booked", "A mismatched provider contact cannot cancel the CRM booking");
+    check(await readStatus(ambiguous.appointment.id), "booked", "An unavailable provider record is not treated as a cancellation");
+    const repeated = await reconcileGhlBookingCancellations();
+    check(repeated.canceled, 0, "Repeated recovery does not process a settled cancellation again");
+    check(await consentCheck(appointmentId), optIn, "Recovery preserves historical appointment consent");
+    check(await receipt(appointmentId), { state: "accepted", detail: "fixture-accepted-message" }, "Recovery preserves the existing SMS receipt");
+    check(sent.map(value => value.appointmentId), [appointmentId, later.id], "Cancellation recovery does not send any messages");
   } finally {
     globalThis.fetch = originalFetch;
     delete process.env.GHL_PRIVATE_INTEGRATION_TOKEN;

@@ -250,12 +250,16 @@ export async function recoverPartnerApplications(opts: { now?: Date; staleMs?: n
 
 let recoveryStarted = false;
 const RECOVERY_INTERVAL_MS = 60_000;
+const BOOKING_CANCELLATION_INTERVAL_MS = 5 * 60_000;
 
 /** Starts the recovery sweep (same lifecycle as the acknowledgement worker; off with the background profile). */
 export function startPartnerApplicationRecovery(): void {
   if (recoveryStarted) return;
   recoveryStarted = true;
   let running = false;
+  let nextCancellationSweepAt = 0;
+  let cancellationCursor = "";
+  let bookingCancellations: unknown;
   const tick = async () => {
     if (running) return;
     running = true;
@@ -271,12 +275,23 @@ export function startPartnerApplicationRecovery(): void {
       try { teamAlerts = await (await import("./team-intake-alerts")).processTeamIntakeAlerts(); }
       catch (err) { teamAlerts = { error: err instanceof Error ? err.name : "NonError" }; }
       let bookingConsent: unknown;
+      if (Date.now() >= nextCancellationSweepAt) {
+        nextCancellationSweepAt = Date.now() + BOOKING_CANCELLATION_INTERVAL_MS;
+        try {
+          const { reconcileGhlBookingCancellations } = await import("./ghl-booking-cancellation-sync");
+          const { cursor, ...result } = await reconcileGhlBookingCancellations(cancellationCursor);
+          cancellationCursor = cursor;
+          bookingCancellations = { ...result, at: new Date().toISOString() };
+        } catch (err) {
+          bookingCancellations = { error: err instanceof Error ? err.name : "NonError", at: new Date().toISOString() };
+        }
+      }
       try { bookingConsent = await (await import("./ghl-booking-consent")).processGhlBookingConsentChecks(); }
       catch (err) { bookingConsent = { error: err instanceof Error ? err.name : "NonError" }; }
       let bookingConfirmationSms: unknown;
       try { bookingConfirmationSms = await (await import("./ghl-booking-sms")).processGhlBookingConfirmationSms(); }
       catch (err) { bookingConfirmationSms = { error: err instanceof Error ? err.name : "NonError" }; }
-      await storage.setSystemSetting("partner_application_recovery_heartbeat", { at: new Date().toISOString(), outcome: "ok", tally, introductions, teamAlerts, bookingConsent, bookingConfirmationSms, intervalMs: RECOVERY_INTERVAL_MS });
+      await storage.setSystemSetting("partner_application_recovery_heartbeat", { at: new Date().toISOString(), outcome: "ok", tally, introductions, teamAlerts, bookingConsent, bookingConfirmationSms, bookingCancellations, intervalMs: RECOVERY_INTERVAL_MS });
     } catch (err) {
       await storage.setSystemSetting("partner_application_recovery_heartbeat", {
         at: new Date().toISOString(), outcome: "error", errorName: err instanceof Error ? err.name : "NonError", intervalMs: RECOVERY_INTERVAL_MS,
