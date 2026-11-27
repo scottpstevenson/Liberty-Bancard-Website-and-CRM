@@ -87,6 +87,20 @@ try {
   await pool.query(`DELETE FROM sending_identities WHERE lower(email_address)=lower($1)`,[COLD_OUTREACH_FROM]);
   await pool.query(`INSERT INTO sending_identities (label,domain,email_address,is_active,warmup_status,daily_limit,sent_today)
     VALUES('cert','mail.libertybancard.com',$1,TRUE,'warm',1,0)`,[COLD_OUTREACH_FROM]);
+  const { readSenderCapacity, reserveSenderCapacity, releaseSenderCapacity } = await import("../../server/services/sfp-sender-capacity");
+  const warmupStart = new Date();
+  await pool.query(`UPDATE sending_identities SET warmup_status='warming', daily_limit=30, sent_today=1,
+    warmup_started_at=$2 WHERE lower(email_address)=lower($1)`, [COLD_OUTREACH_FROM, warmupStart]);
+  const warmingCapacity = await readSenderCapacity(warmupStart);
+  check(warmingCapacity.identityLimit === 5 && warmingCapacity.remaining === 4,
+    "A new warming sender is limited to five total messages including sends made outside SFP");
+  const reservations = await Promise.all(Array.from({ length: 7 }, () => reserveSenderCapacity(warmupStart)));
+  const accepted = reservations.flatMap(result => result.ok ? [result.reservation] : []);
+  check(accepted.length === 4 && reservations.filter(result => !result.ok && result.reason === "SENDER_DAILY_LIMIT").length === 3,
+    "Concurrent sends cannot exceed the warm-up budget shown in the release preview");
+  for (const reservation of accepted) await releaseSenderCapacity(reservation);
+  await pool.query(`UPDATE sending_identities SET warmup_status='warm', daily_limit=1, sent_today=0,
+    warmup_started_at=NULL WHERE lower(email_address)=lower($1)`, [COLD_OUTREACH_FROM]);
   const enrollment = async (id: number) => (await pool.query("SELECT * FROM sequence_enrollments WHERE id=$1",[id])).rows[0];
   const view = (row: any) => ({ id: row.id, status: row.status, metadata: row.metadata });
 
