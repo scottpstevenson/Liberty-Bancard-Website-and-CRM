@@ -44,6 +44,7 @@ function createBrowserMocks() {
 async function loadTracking(scenario: string) {
   const mocks = createBrowserMocks();
   process.env.VITE_FB_PIXEL_ID = "123456789";
+  process.env.VITE_GOOGLE_ADS_LEAD_CONVERSION = "AW-123456/fixture_label";
   const tracking = await import(`../client/src/lib/tracking.ts?scenario=${scenario}`);
   return { ...mocks, tracking };
 }
@@ -69,14 +70,14 @@ async function runTests() {
 
   {
     const { gtagCalls, fbqCalls, tracking } = await loadTracking("accept");
-    tracking.applyConsentPreferences({ analytics: true, marketing: true });
+    tracking.applyConsentPreferences({ analytics: true, marketing: true, adsWebsiteMeasurement: true });
     const update = consentUpdate(gtagCalls);
     assert(
       update?.analytics_storage === "granted" &&
         update?.ad_storage === "granted" &&
-        update?.ad_user_data === "denied" &&
+        update?.ad_user_data === "granted" &&
         update?.ad_personalization === "denied",
-      "Accept grants measurement storage without enabling personalization or contact-data uploads",
+      "Explicit website ad measurement grants Google measurement consent and denies personalization",
     );
     assert(fbqCalls.filter((args) => args[0] === "init").length === 1, "Accept initializes Meta Pixel exactly once");
   }

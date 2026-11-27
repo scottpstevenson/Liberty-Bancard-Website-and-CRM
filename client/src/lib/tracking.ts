@@ -26,7 +26,11 @@ const configuredAdsDestination = typeof import.meta.env !== "undefined" ? import
 const ADS_DESTINATION = configuredAdsDestination?.match(/^AW-\d+\/[A-Za-z0-9_-]+$/)?.[0];
 const ADS_TAG_ID = ADS_DESTINATION?.split("/")[0];
 
-export type TrackingConsentPreferences = { analytics: boolean; marketing: boolean };
+export type TrackingConsentPreferences = {
+  analytics: boolean;
+  marketing: boolean;
+  adsWebsiteMeasurement?: boolean;
+};
 export type CookieConsentPreferences = TrackingConsentPreferences & {
   necessary: boolean;
   functional: boolean;
@@ -45,6 +49,7 @@ const DEFAULT_COOKIE_PREFERENCES: CookieConsentPreferences = {
 let initialized = false;
 let analyticsConsent = false;
 let marketingConsent = false;
+let websiteAdsConsent = false;
 let gaScriptInjected = false;
 let gaConfigured = false;
 let metaScriptInjected = false;
@@ -80,11 +85,14 @@ function cleanProperties(input: Record<string, unknown> = {}) {
   }
   return out;
 }
-function clearTrackingCookies(analytics: boolean, marketing: boolean) {
+function clearTrackingCookies(analytics: boolean, marketing: boolean, websiteAds: boolean) {
   if (typeof document === "undefined" || typeof document.cookie !== "string") return;
   for (const cookie of document.cookie.split(";")) {
     const name = cookie.split("=")[0].trim();
-    if (!(analytics && /^_ga(?:_|$)|^_gid$|^_gat/.test(name)) && !(marketing && /^_gcl_|^_fbp$|^_fbc$/.test(name))) continue;
+    const shouldClear = (analytics && /^_ga(?:_|$)|^_gid$|^_gat/.test(name))
+      || (marketing && /^_fbp$|^_fbc$/.test(name))
+      || (websiteAds && /^_gcl_/.test(name));
+    if (!shouldClear) continue;
     const host = window.location.hostname;
     for (const domain of ["", host, "." + host, ".libertybancard.com"]) document.cookie = `${name}=; Max-Age=0; Path=/; SameSite=Lax${domain ? `; Domain=${domain}` : ""}`;
   }
@@ -101,8 +109,8 @@ function ensureGtag() {
 }
 
 function loadGaScript() {
-  const tagId = (analyticsConsent && GA_ID && GOOGLE_TAG_ID) || (marketingConsent ? ADS_TAG_ID : undefined);
-  if (!currentContext() || (!analyticsConsent && !marketingConsent) || !tagId || gaScriptInjected || typeof document === "undefined") return;
+  const tagId = (analyticsConsent && GA_ID && GOOGLE_TAG_ID) || (websiteAdsConsent ? ADS_TAG_ID : undefined);
+  if (!currentContext() || !tagId || gaScriptInjected || typeof document === "undefined") return;
   gaScriptInjected = true;
   const script = document.createElement("script");
   script.async = true;
@@ -177,6 +185,7 @@ export function getStoredCookieConsent(): { level: string | null; preferences: C
         analytics: parsed.analytics === true,
         marketing: parsed.marketing === true,
         functional: parsed.functional === true,
+        adsWebsiteMeasurement: typeof parsed.adsWebsiteMeasurement === "boolean" ? parsed.adsWebsiteMeasurement : undefined,
         adsMeasurement: typeof parsed.adsMeasurement === "boolean" ? parsed.adsMeasurement : undefined,
       };
     }
@@ -191,7 +200,11 @@ export function saveCookieConsent(level: string, preferences: CookieConsentPrefe
   else retryAdsMeasurementRevocation();
   try {
     localStorage.setItem(CONSENT_KEY, level);
-    localStorage.setItem(CONSENT_PREFS_KEY, JSON.stringify({ ...preferences, adsMeasurement: preferences.adsMeasurement === true }));
+    localStorage.setItem(CONSENT_PREFS_KEY, JSON.stringify({
+      ...preferences,
+      adsWebsiteMeasurement: preferences.adsWebsiteMeasurement === true,
+      adsMeasurement: preferences.adsMeasurement === true,
+    }));
   } catch {
     // Consent is still applied for this page even if persistence is unavailable.
   }
@@ -201,9 +214,13 @@ export function saveCookieConsent(level: string, preferences: CookieConsentPrefe
 export function applyConsentPreferences(preferences: TrackingConsentPreferences): void {
   const revokedAnalytics = analyticsConsent && !preferences.analytics;
   const revokedMarketing = marketingConsent && !preferences.marketing;
+  const nextWebsiteAdsConsent = preferences.marketing === true && preferences.adsWebsiteMeasurement === true;
+  const revokedWebsiteAds = websiteAdsConsent && !nextWebsiteAdsConsent;
   analyticsConsent = preferences.analytics === true;
   marketingConsent = preferences.marketing === true;
+  websiteAdsConsent = nextWebsiteAdsConsent;
   const active = !!currentContext();
+  const websiteAdsAllowed = active && websiteAdsConsent && !!ADS_TAG_ID;
   ensureGtag();
   if (typeof window !== "undefined") {
     if (GA_ID) (window as any)[`ga-disable-${GA_ID}`] = !active || !analyticsConsent;
@@ -214,19 +231,18 @@ export function applyConsentPreferences(preferences: TrackingConsentPreferences)
     }
     window.gtag!("consent", "update", {
       analytics_storage: active && analyticsConsent ? "granted" : "denied",
-      ad_storage: active && marketingConsent ? "granted" : "denied",
-      // Measurement does not require personalization or uploading visitor-provided contact data.
-      ad_user_data: "denied",
+      ad_storage: websiteAdsAllowed ? "granted" : "denied",
+      ad_user_data: websiteAdsAllowed ? "granted" : "denied",
       ad_personalization: "denied",
     });
     if (metaInitialized) window.fbq?.("consent", active && marketingConsent && metaContextAllowed() ? "grant" : "revoke");
   }
-  clearTrackingCookies(revokedAnalytics, revokedMarketing);
+  clearTrackingCookies(revokedAnalytics, revokedMarketing, revokedMarketing || revokedWebsiteAds);
   if (!analyticsConsent) lastAnalyticsView = "";
   if (!marketingConsent) lastMarketingView = "";
-  if (active && (analyticsConsent || marketingConsent)) loadGaScript();
+  if (active && (analyticsConsent || websiteAdsAllowed)) loadGaScript();
   configureGaIfAllowed();
-  if (active && marketingConsent && ADS_TAG_ID) {
+  if (websiteAdsAllowed) {
     if (!adsConfigured && typeof window !== "undefined") {
       window.gtag?.("config", ADS_TAG_ID, { send_page_view: false, ...currentContext(), page_referrer: safeReferrer(document.referrer || ""), allow_ad_personalization_signals: false });
       adsConfigured = true;
@@ -268,7 +284,11 @@ function fbqEvent(...args: any[]) {
 
 /** Router is the only page-view owner. Re-renders are idempotent; back/forward after another route emits a new view. */
 export function trackPageView(_path?: string) {
-  applyConsentPreferences({ analytics: analyticsConsent, marketing: marketingConsent });
+  applyConsentPreferences({
+    analytics: analyticsConsent,
+    marketing: marketingConsent,
+    adsWebsiteMeasurement: websiteAdsConsent,
+  });
 }
 
 /** One conversion owner. The receipt is used locally for replay suppression, never included in event payloads. */
@@ -288,7 +308,7 @@ export function trackConversion(type: string, value?: number, receipt?: string):
     form_name: type, event_category: "conversion", journey_stage: "lead", outcome: "accepted",
   });
   // A GA4 G- measurement ID is not a Google Ads conversion destination.
-  if (isLead && receipt && marketingConsent && adsConfigured && ADS_DESTINATION) {
+  if (isLead && receipt && websiteAdsConsent && adsConfigured && ADS_DESTINATION) {
     ensureGtag();
     window.gtag?.("event", "conversion", { send_to: ADS_DESTINATION, ...currentContext(), page_referrer: safeReferrer(document.referrer || "") });
   }
