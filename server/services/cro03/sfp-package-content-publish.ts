@@ -10,7 +10,7 @@
  * Safety checks (all under the same locks the staging/preparation lanes use, in the fixed order of
  * lockLivePackageContentRows):
  *   stale hash       the caller names the package version and content hash it edited; any other live state is a 409.
- *   started journeys any enrollment that is not paused-at-step-0 refuses publication (never append to a started journey).
+ *   started journeys only untouched paused or cancelled enrollments can remain on an edited sequence.
  *   draft/paused     the home campaign must be a draft and the sequence paused, as the other package writers require.
  *   content          3 or 5 touches, relative delays, supported tokens only, no unsupported claims or unsafe/literal links,
  *                    and the shared launch-readiness guard after the write (a failure rolls the transaction back).
@@ -22,10 +22,10 @@ import { db } from "../../db";
 import { auditChange } from "../audit-change";
 import { FIRST_PARTY_BOOK_URL, resolveSalesBooking } from "../message-cta-contract";
 import { lintLinks, lintRules } from "../message-copy-lint";
-import { claimProblems } from "./sfp-premium-drafts";
+import { claimProblems, PREMIUM_SFP_DRAFTS } from "./sfp-premium-drafts";
 import { SFP_PACKAGE_KEYS_V2, computeLivePackageContentHash, lockLivePackageContentRows, type SfpPackageKeyV2 } from "./sfp-campaign-packages";
 import { SFP_LAUNCH_CONTENT_VERSION, SFP_SECURE_UPLOAD_URL, checkPackageContentReadiness } from "./sfp-launch-content";
-import { SFP_LAUNCH_PRESENTATION_VERSION } from "./sfp-launch-presentation";
+import { SFP_LAUNCH_PRESENTATION_VERSION, SFP_PREVIOUS_LAUNCH_PRESENTATION } from "./sfp-launch-presentation";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -102,39 +102,97 @@ export function cumulativeDays(delays: number[]): number[] {
 export interface PackageEditState {
   packageKey: string; versionId: string; contentHash: string; vertical: string;
   campaignId: number; sequenceId: number; campaignStatus: string; sequenceStatus: string;
-  startedJourneys: number; activeEnrollments: number;
+  startedJourneys: number; activeEnrollments: number; neverSentCancellations: number;
   editable: boolean; refusals: string[];
+  premiumPublishable: boolean; premiumProblems: Array<{ touch: number | null; problem: string }>;
   steps: Array<{ stepOrder: number; subject: string; body: string; delayDays: number; cumulativeDay: number }>;
 }
 
 const isKey = (k: string): k is SfpPackageKeyV2 => (SFP_PACKAGE_KEYS_V2 as string[]).includes(k);
 
+type PackageReader = Parameters<typeof computeLivePackageContentHash>[0];
+
+async function readPackageJourneyState(exec: PackageReader, sequenceId: number) {
+  const counts = rows(await exec.execute(sql`
+    SELECT count(*) FILTER (WHERE protected)::int AS started,
+           count(*) FILTER (WHERE status='active')::int AS active,
+           count(*) FILTER (WHERE status='cancelled' AND NOT protected)::int AS never_sent_cancellations
+      FROM (
+        SELECT e.status, CASE
+          WHEN e.status IN ('paused', 'cancelled') AND coalesce(e.current_step,0)=0 THEN
+            EXISTS (SELECT 1 FROM outbound_send_log l WHERE l.sequence_enrollment_id=e.id)
+            OR EXISTS (SELECT 1 FROM communication_events c WHERE c.contact_id=e.contact_id
+                         AND c.sequence_id=e.sequence_id AND c.direction='outbound')
+          ELSE TRUE
+        END AS protected
+        FROM sequence_enrollments e WHERE e.sequence_id=${sequenceId}
+      ) journeys`))[0];
+  return {
+    startedJourneys: Number(counts?.started ?? 0), activeEnrollments: Number(counts?.active ?? 0),
+    neverSentCancellations: Number(counts?.never_sent_cancellations ?? 0),
+  };
+}
+
+async function readPackageHome(exec: PackageReader, packageKey: string) {
+  return rows(await exec.execute(sql`
+    SELECT campaign_id,campaign_name,sequence_id,sequence_name FROM sfp_campaign_package_versions
+     WHERE package_key=${packageKey} ORDER BY created_at ASC, id ASC LIMIT 1`))[0];
+}
+
+async function inspectPackagePin(
+  exec: PackageReader,
+  campaignId: number,
+  sequenceId: number,
+  pkg: { content_hash: string; notes: string | null },
+) {
+  const liveHash = await computeLivePackageContentHash(exec, campaignId, sequenceId);
+  if (liveHash === pkg.content_hash) return { liveHash, matches: true };
+  // Only the known signature transition can match an older pin. Every campaign and sequence field
+  // is still compared to the original hash, and a successful publish writes a new current pin.
+  let presentationVersion: unknown;
+  try { presentationVersion = JSON.parse(pkg.notes ?? "null")?.presentationVersion; } catch { /* legacy plain-text notes */ }
+  const matches = presentationVersion === SFP_PREVIOUS_LAUNCH_PRESENTATION.version
+    && await computeLivePackageContentHash(exec, campaignId, sequenceId, SFP_PREVIOUS_LAUNCH_PRESENTATION.fingerprint) === pkg.content_hash;
+  return { liveHash, matches };
+}
+
 /** Read-only: the current version a draft would be published against, plus every reason publication would be refused now. */
 export async function getPackageEditState(packageKey: string): Promise<PackageEditState | null> {
   if (!isKey(packageKey)) return null;
   const pkg = rows(await db.execute(sql`
-    SELECT id::text AS id, vertical, campaign_id, sequence_id, content_hash FROM sfp_campaign_package_versions
+    SELECT id::text AS id, vertical, campaign_id, sequence_id, content_hash, notes FROM sfp_campaign_package_versions
      WHERE package_key=${packageKey} AND lifecycle_state='current' LIMIT 1`))[0];
   if (!pkg) return null;
   const campaignId = Number(pkg.campaign_id), sequenceId = Number(pkg.sequence_id);
   const camp = rows(await db.execute(sql`SELECT status FROM campaigns WHERE id=${campaignId}`))[0];
   const seq = rows(await db.execute(sql`SELECT status FROM follow_up_sequences WHERE id=${sequenceId}`))[0];
-  const enr = rows(await db.execute(sql`
-    SELECT count(*) FILTER (WHERE status<>'paused' OR coalesce(current_step,0)<>0)::int AS started,
-           count(*) FILTER (WHERE status='active')::int AS active
-      FROM sequence_enrollments WHERE sequence_id=${sequenceId}`))[0];
+  const journeys = await readPackageJourneyState(db, sequenceId);
   const steps = rows(await db.execute(sql`SELECT step_order, subject, body, delay_days FROM sequence_steps WHERE sequence_id=${sequenceId} ORDER BY step_order`));
   const days = cumulativeDays(steps.map((s) => Number(s.delay_days ?? 0)));
   const refusals: string[] = [];
   if (camp?.status !== "draft") refusals.push(`campaign is ${camp?.status ?? "missing"}, not draft`);
   if (seq?.status !== "paused") refusals.push(`sequence is ${seq?.status ?? "missing"}, not paused`);
-  if (Number(enr?.started ?? 0) > 0) refusals.push(`${enr.started} journey(s) already started`);
-  if (Number(enr?.active ?? 0) > 0) refusals.push(`${enr.active} active enrollment(s)`);
+  if (journeys.startedJourneys > 0) refusals.push(`${journeys.startedJourneys} journey(s) have started or have dispatch history`);
+  if (journeys.activeEnrollments > 0) refusals.push(`${journeys.activeEnrollments} active enrollment(s)`);
+  if (!refusals.length) {
+    const home = await readPackageHome(db, packageKey);
+    if (Number(home?.campaign_id) !== campaignId || Number(home?.sequence_id) !== sequenceId) {
+      refusals.push("The package is pinned to a copy of its home campaign or sequence");
+    } else if (!(await inspectPackagePin(db, campaignId, sequenceId, pkg)).matches) {
+      refusals.push("Live steps differ from the pinned version");
+    }
+  }
+  const premium = PREMIUM_SFP_DRAFTS.filter(touch => touch.family === packageKey);
+  const premiumChecks = validatePackageTouches(premium.map((touch, i) => ({
+    subject: touch.subject, body: touch.body, delayDays: touch.day - (premium[i - 1]?.day ?? 0),
+  })), { bookingAvailable: resolveSalesBooking(process.env).available });
   return {
     packageKey, versionId: String(pkg.id), contentHash: String(pkg.content_hash), vertical: String(pkg.vertical), campaignId, sequenceId,
     campaignStatus: String(camp?.status ?? ""), sequenceStatus: String(seq?.status ?? ""),
-    startedJourneys: Number(enr?.started ?? 0), activeEnrollments: Number(enr?.active ?? 0),
-    editable: refusals.length === 0, refusals,
+    ...journeys,
+    editable: refusals.length === 0,
+    premiumPublishable: refusals.length === 0 && premiumChecks.ok,
+    refusals, premiumProblems: premiumChecks.ok ? [] : premiumChecks.problems,
     steps: steps.map((s, i) => ({ stepOrder: Number(s.step_order), subject: String(s.subject ?? ""), body: String(s.body ?? ""), delayDays: Number(s.delay_days ?? 0), cumulativeDay: days[i] })),
   };
 }
@@ -162,9 +220,7 @@ export async function publishPackageContent(input: PublishPackageInput): Promise
       throw new PackagePublishError(409, "PACKAGE_STALE", "The package changed after this draft was started. Reload it before publishing.",
         { currentVersionId: String(pkg.id), currentContentHash: String(pkg.content_hash) });
     }
-    const home = rows(await tx.execute(sql`
-      SELECT campaign_id,campaign_name,sequence_id,sequence_name FROM sfp_campaign_package_versions
-       WHERE package_key=${packageKey} ORDER BY created_at ASC, id ASC LIMIT 1`))[0];
+    const home = await readPackageHome(tx, packageKey);
     const campaignId = Number(home.campaign_id), sequenceId = Number(home.sequence_id);
     if (Number(pkg.campaign_id) !== campaignId || Number(pkg.sequence_id) !== sequenceId) {
       throw new PackagePublishError(409, "PACKAGE_NOT_AT_HOME", "The package is pinned to a copy of its home campaign/sequence; return it home before editing");
@@ -172,19 +228,22 @@ export async function publishPackageContent(input: PublishPackageInput): Promise
     const { campaign, sequence } = await lockLivePackageContentRows(tx, campaignId, sequenceId);
     if (campaign.status !== "draft") throw new PackagePublishError(409, "CAMPAIGN_NOT_DRAFT", `Campaign is ${campaign.status}, not draft`);
     if (sequence.status !== "paused") throw new PackagePublishError(409, "SEQUENCE_NOT_PAUSED", `Sequence is ${sequence.status}, not paused`);
-    const started = Number(rows(await tx.execute(sql`
-      SELECT count(*)::int n FROM sequence_enrollments WHERE sequence_id=${sequenceId} AND (status<>'paused' OR coalesce(current_step,0)<>0)`))[0]?.n ?? 0);
-    if (started > 0) throw new PackagePublishError(409, "PACKAGE_HAS_STARTED_JOURNEYS", `${started} journey(s) already started on this sequence; steps are never changed under them`, { started });
+    // Parent locks fence new enrollments; row locks serialize the existing memberships with release
+    // and dispatch as we verify that none can resume into a rewritten sequence.
+    await tx.execute(sql`SELECT id FROM sequence_enrollments WHERE sequence_id=${sequenceId} ORDER BY id FOR UPDATE`);
+    const { startedJourneys: started } = await readPackageJourneyState(tx, sequenceId);
+    if (started > 0) throw new PackagePublishError(409, "PACKAGE_HAS_STARTED_JOURNEYS",
+      `${started} journey(s) have started or have dispatch history. Their sequence steps are preserved.`, { started });
 
-    const liveHash = await computeLivePackageContentHash(tx, campaignId, sequenceId);
-    if (liveHash !== String(pkg.content_hash)) {
+    const { liveHash, matches } = await inspectPackagePin(tx, campaignId, sequenceId, pkg);
+    if (!matches) {
       throw new PackagePublishError(409, "PACKAGE_LIVE_DRIFT", "Live steps differ from the pinned version (an edit nobody published). Review before publishing.", { currentContentHash: liveHash });
     }
 
     const existing = rows(await tx.execute(sql`SELECT step_order,action_type,subject,body,delay_days,delay_hours FROM sequence_steps WHERE sequence_id=${sequenceId} ORDER BY step_order`));
     const same = existing.length === drafts.length && drafts.every((d, i) =>
       existing[i].subject === d.subject && existing[i].body === d.body && Number(existing[i].delay_days) === d.delayDays && existing[i].action_type === "email");
-    if (same) return { status: "replayed" as const, packageVersionId: String(pkg.id), contentHash: String(pkg.content_hash), touches: drafts.length };
+    if (same && liveHash === pkg.content_hash) return { status: "replayed" as const, packageVersionId: String(pkg.id), contentHash: String(pkg.content_hash), touches: drafts.length };
 
     const campaignSteps = rows(await tx.execute(sql`SELECT step_order FROM campaign_steps WHERE campaign_id=${campaignId}`)).map((r) => Number(r.step_order));
     for (const d of drafts) {

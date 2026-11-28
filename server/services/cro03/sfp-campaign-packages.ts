@@ -141,6 +141,7 @@ export async function computeLivePackageContentHash(
   exec: { execute: (q: any) => Promise<any> },
   campaignId: number,
   sequenceId: number,
+  presentation = sfpLaunchPresentationFingerprint(),
 ): Promise<string> {
   const campaignRow = rows(await exec.execute(sql`
     SELECT description, target_verticals, total_steps, content_revision, status
@@ -161,7 +162,7 @@ export async function computeLivePackageContentHash(
   `));
   // The shared launch presentation (signature, logo, links) is part of what a recipient sees, so it is versioned
   // content: changing it changes this hash and stales every preparation/approval pinned to the old one.
-  return sha256({ campaignRow, campaignStepRows, sequenceRow, sequenceStepRows, presentation: sfpLaunchPresentationFingerprint() });
+  return sha256({ campaignRow, campaignStepRows, sequenceRow, sequenceStepRows, presentation });
 }
 
 /**

@@ -12,6 +12,12 @@
 import { createHash } from "node:crypto";
 import { PUBLIC_CONTACT_CHANNELS } from "@shared/public-contact-content";
 
+/** Exact fingerprint before Liberty switched the SFP signature to the 786 number. */
+export const SFP_PREVIOUS_LAUNCH_PRESENTATION = {
+  version: "sfp-launch-presentation-2026-10-19.1",
+  fingerprint: "c9804d99fc2bd9a3e414c22836b87ca82029a112562a08e8e101959518c48ad8",
+} as const;
+
 export const SFP_LAUNCH_PRESENTATION_VERSION = "sfp-launch-presentation-2026-11-27.1";
 export const SFP_LAUNCH_PHONE = PUBLIC_CONTACT_CHANNELS.phone.display;
 export const SFP_LAUNCH_SITE_HOST = "libertybancard.com";

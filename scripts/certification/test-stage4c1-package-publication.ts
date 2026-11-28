@@ -13,7 +13,9 @@ await assertDisposableTestInfrastructure({ operation: "Stage 4C1 package publica
 process.env.VG_PROVIDER_DENY_MODE = "1";
 applyCertificationProviderDenyBoundary({ fatal: true });
 
-const { pool } = await import("../../server/db");
+const { db, pool } = await import("../../server/db");
+const { PREMIUM_SFP_DRAFTS } = await import("../../server/services/cro03/sfp-premium-drafts");
+const { SFP_PREVIOUS_LAUNCH_PRESENTATION } = await import("../../server/services/cro03/sfp-launch-presentation");
 const packages = await import("../../server/services/cro03/sfp-campaign-packages");
 const content = await import("../../server/services/cro03/sfp-launch-content");
 const pub = await import("../../server/services/cro03/sfp-package-content-publish");
@@ -125,6 +127,64 @@ try {
   await pool.query(`UPDATE follow_up_sequences SET status='active' WHERE id=$1`, [seqId]);
   await refuses(() => pub.publishPackageContent({ packageKey: KEY, expectedVersionId: st3.versionId, expectedContentHash: st3.contentHash, actorId: ACTOR, touches: three }), 409, "SEQUENCE_NOT_PAUSED", "A non-paused sequence refuses publication");
   await pool.query(`UPDATE follow_up_sequences SET status='paused' WHERE id=$1`, [seqId]);
+
+  // Actual premium copy, with the first-touch cancellations the live editor was refusing.
+  process.env.GHL_DEFAULT_CALENDAR_ID = "PremiumFixtureCalendar";
+  for (const packageKey of packages.SFP_PACKAGE_KEYS_V2) {
+    const state = (await pub.getPackageEditState(packageKey))!;
+    const contactId = Number((await pool.query(`INSERT INTO contacts(first_name,last_name,email,phone,record_class)
+      VALUES ('Pkg','Cancelled',$1,'+13055550177','production') RETURNING id`, [`${packageKey}-${tag}@example-business.test`])).rows[0].id);
+    const enrollmentId = Number((await pool.query(`INSERT INTO sequence_enrollments(sequence_id,contact_id,current_step,status)
+      VALUES ($1,$2,0,'cancelled') RETURNING id`, [state.sequenceId, contactId])).rows[0].id);
+    const ready = (await pub.getPackageEditState(packageKey))!;
+    check(ready.editable && ready.neverSentCancellations === 1, `${packageKey}: a never-sent cancellation is ignored by the guard`);
+
+    // Exercise the precise historical signature hash, plus copy drift under that old hash.
+    const previous = await packages.computeLivePackageContentHash(db, state.campaignId, state.sequenceId,
+      SFP_PREVIOUS_LAUNCH_PRESENTATION.fingerprint);
+    await pool.query("UPDATE sfp_campaign_package_versions SET lifecycle_state='superseded', superseded_at=NOW() WHERE id=$1", [ready.versionId]);
+    const previousVersion = (await pool.query(`
+      INSERT INTO sfp_campaign_package_versions
+        (package_key,vertical,campaign_id,campaign_name,sequence_id,sequence_name,sequence_family,content_hash,lifecycle_state,effective_at,actor_id,notes)
+      SELECT package_key,vertical,campaign_id,campaign_name,sequence_id,sequence_name,sequence_family,$1,'current',NOW(),actor_id,
+             jsonb_set(notes::jsonb,'{presentationVersion}',to_jsonb($2::text))::text
+        FROM sfp_campaign_package_versions WHERE id=$3 RETURNING id`,
+      [previous, SFP_PREVIOUS_LAUNCH_PRESENTATION.version, ready.versionId])).rows[0].id;
+    let priorDay = 0;
+    const touches = PREMIUM_SFP_DRAFTS.filter(d => d.family === packageKey).map(d => {
+      const delayDays = d.day - priorDay;
+      priorDay = d.day;
+      return { subject: d.subject, body: d.body, delayDays };
+    });
+    const input = { packageKey, expectedVersionId: previousVersion, expectedContentHash: previous, actorId: ACTOR, touches };
+
+    if (packageKey === KEY) {
+      const originalSteps = JSON.stringify(ready.steps);
+      await pool.query(`INSERT INTO outbound_send_log(idempotency_key,sequence_id,sequence_enrollment_id,contact_id,step_order,channel,to_address,status)
+        VALUES ($1,$2,$3,$4,1,'email_smtp','fixture@example-business.test','dispatching')`,
+        [`seq-${enrollmentId}-s1`, state.sequenceId, enrollmentId, contactId]);
+      check(!(await pub.getPackageEditState(packageKey))!.editable, "A cancelled step-zero enrollment with uncertain dispatch remains protected");
+      await refuses(() => pub.publishPackageContent(input), 409, "PACKAGE_HAS_STARTED_JOURNEYS", "A cancellation cannot erase dispatch history");
+      check(JSON.stringify((await pub.getPackageEditState(packageKey))!.steps) === originalSteps, "The protected journey retains its original steps");
+      await pool.query("DELETE FROM outbound_send_log WHERE sequence_enrollment_id=$1", [enrollmentId]);
+      await pool.query(`INSERT INTO communication_events (contact_id,direction,channel,sequence_id,status) VALUES ($1,'outbound','email',$2,'sent')`,
+        [contactId, state.sequenceId]);
+      await refuses(() => pub.publishPackageContent(input), 409, "PACKAGE_HAS_STARTED_JOURNEYS", "A historical CRM communication protects a step-zero cancellation");
+      await pool.query("DELETE FROM communication_events WHERE contact_id=$1 AND sequence_id=$2", [contactId, state.sequenceId]);
+      await pool.query(`UPDATE sequence_steps SET body=body||' unrelated edit' WHERE sequence_id=$1 AND step_order=1`, [state.sequenceId]);
+      check(!(await pub.getPackageEditState(packageKey))!.editable, "The editor flags actual content drift under an old signature pin");
+      await refuses(() => pub.publishPackageContent(input), 409, "PACKAGE_LIVE_DRIFT", "The signature transition cannot hide a sequence edit");
+      await pool.query(`UPDATE sequence_steps SET body=replace(body,' unrelated edit','') WHERE sequence_id=$1 AND step_order=1`, [state.sequenceId]);
+    }
+    check((await pub.getPackageEditState(packageKey))!.premiumPublishable, `${packageKey}: preflight accepts the prior signature and actual premium drafts`);
+    const result = await pub.publishPackageContent(input);
+    const after = (await pub.getPackageEditState(packageKey))!;
+    check(result.status === "published" && after.steps.map(s => s.cumulativeDay).join(",") === "0,3,7,12,18"
+      && after.steps.every((step, i) => step.subject === touches[i].subject) && after.contentHash === result.contentHash,
+    `${packageKey}: the real premium draft publishes with all five touches and a new version`);
+    check((await pool.query("SELECT status FROM sequence_enrollments WHERE id=$1", [enrollmentId])).rows[0].status === "cancelled",
+      `${packageKey}: the cancelled enrollment stays cancelled`);
+  }
 
   check(getBlockedCertificationNetworkAttemptCount() === 0, "No provider or network call was attempted");
   console.log(`STAGE4C1_PACKAGE_PUBLICATION_PASS (${checks} checks)`);
