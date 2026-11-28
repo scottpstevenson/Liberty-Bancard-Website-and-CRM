@@ -444,6 +444,38 @@ try {
   check((await qualified()).length > 0, "Refreshed recipients are selectable again");
   await reset();
 
+  // An operator can refresh exact existing memberships while globally paused, without running discovery.
+  const [target, untouched] = await seqRecipients(2);
+  const { refreshHeldSfpRecipient, HeldRefreshRequiresPause } = await import("../../server/services/sfp-held-recipient-refresh");
+  await replacePackageWording(seq, "\n\nP.S. Verified held copy.");
+  const pins = async () => (await pool.query(`SELECT enrollment_id,preparation_snapshot->>'contentHash' AS hash
+     FROM cr04_enrollment_intents WHERE enrollment_id=ANY($1::int[]) ORDER BY enrollment_id`,
+    [[target.enrollmentId, untouched.enrollmentId]])).rows;
+  const oldPins = await pins();
+  await assert.rejects(refreshHeldSfpRecipient(target.enrollmentId, "admin:cert"), HeldRefreshRequiresPause); checks++;
+  await pool.query(`UPDATE outbound_pause_control SET state='paused',epoch=epoch+1`);
+  const { invalidatePauseStateCache } = await import("../../server/services/outbound-pause-authority");
+  invalidatePauseStateCache();
+  const heldRefresh = await refreshHeldSfpRecipient(target.enrollmentId, "admin:cert");
+  check(heldRefresh.refreshed && heldRefresh.reviewRecipient?.enrollmentId === target.enrollmentId && heldRefresh.subject,
+    `The exact requested enrollment renders its published message (${heldRefresh.reason ?? "verified"})`);
+  const member = await enr(target.enrollmentId);
+  check(member.status === "paused" && member.current_step === 0 && !member.next_action_at && !member.metadata.canonicalRelease,
+    "Targeted refresh does not admit, schedule or advance the held membership");
+  const currentPins = await pins();
+  check(currentPins[0].hash !== oldPins[0].hash && currentPins[1].hash === oldPins[1].hash,
+    "Only the requested preparation receives the published package hash");
+  const refreshReplay = await refreshHeldSfpRecipient(target.enrollmentId, "admin:cert");
+  check(!refreshReplay.refreshed && refreshReplay.reviewRecipient?.enrollmentId === target.enrollmentId,
+    "Retry verifies the same enrollment without refreshing it again");
+  await pool.query(`UPDATE sequence_enrollments SET current_step=1 WHERE id=$1`, [untouched.enrollmentId]);
+  const started = await refreshHeldSfpRecipient(untouched.enrollmentId, "admin:cert");
+  check(!started.refreshed && !started.reviewRecipient && (await pins())[1].hash === oldPins[1].hash,
+    "A started journey stays on its original package");
+  check(captured.length === 0, "Targeted refresh sends no email");
+  await reset();
+  await openPause();
+
   // A continued journey keeps the due time its last confirmed send implies, not the release time.
   await setSender(30);
   const cd = await seqRecipients(1);

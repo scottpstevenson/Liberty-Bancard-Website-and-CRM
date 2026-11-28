@@ -24,6 +24,7 @@ export interface CanonicalPreparationInput {
   source: string;
   historicalCohortRunId?: string | null;
   dealId?: number | null;
+  refreshHeld?: { enrollmentId: number; intentId: string; emailHash: string };
   beforeWrite?: (tx: any) => Promise<void>;
   /** Outside the write transaction: renew only a still-live worker claim and
    * checkpoint around potentially slow qualification. Never send authority. */
@@ -229,6 +230,8 @@ async function prepareCanonicalRecipientPass(input: CanonicalPreparationInput) {
     const email = String(contact.email ?? "").trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return held("AVAILABLE_EMAIL_REQUIRED");
     const emailHash = createHash("sha256").update(email).digest("hex");
+    if (input.refreshHeld && (emailHash !== input.refreshHeld.emailHash || !binding.package_id ||
+      Number(contact.email_mutation_generation) < 1)) return held("ORIGINAL_BINDING_CHANGED");
     // Inspect current alternatives without creating intents for every stored
     // email. Duplicate normalized addresses rank once, regardless of contact IDs.
     lap("tx_reads_and_binding");
@@ -299,6 +302,52 @@ async function prepareCanonicalRecipientPass(input: CanonicalPreparationInput) {
     if (existing && Number(existing.contact_id) !== input.contactId) {
       return held("ADDRESS_ALREADY_PREPARED_WITH_ANOTHER_CONTACT");
     }
+    if (input.refreshHeld && (String(existing?.id) !== input.refreshHeld.intentId ||
+      Number(existing?.enrollment_id) !== input.refreshHeld.enrollmentId || preparationState !== "ready_held")) {
+      return held(preparationState === "ready_held" ? "ORIGINAL_BINDING_CHANGED" : reasonCode);
+    }
+    const intentId = existing?.id ?? randomUUID();
+    const snapshot = {
+      programId: String(binding.program_id), policyVersion: binding.policy_version,
+      packageVersionId: binding.package_id, contentHash: binding.content_hash,
+      explicitSequenceBinding: binding.trigger_config,
+      sequenceId: input.sequenceId, businessId: Number(business.id), contactId: input.contactId,
+      canonicalVertical: business.vertical, geography,
+      businessSourceFingerprint: business.source_fingerprint,
+      emailMutationGeneration: contact.email_mutation_generation,
+      channelDecisionId: decision.id, validationOperationId: receipt?.operationId ?? null,
+      channelQualificationReasons:decision.reasonCodes,channelQualified:decision.qualified,
+      originalObservedAt: receipt?.observedAt ?? null, originalExpiresAt: receipt?.expiresAt ?? null,
+      validationPolicyDocumentId: policy.id, validationPolicyHash: policy.documentHash,
+      historicalCohortRunId: input.historicalCohortRunId ?? null,
+      source: input.source, outboundAuthorized: false,
+    };
+    lap("tx_snapshot_build");
+    if (input.refreshHeld) {
+      // Recheck the exact held membership inside the same transaction that refreshes the snapshot.
+      const updated = rows(await tx.execute(sql`
+        WITH held_member AS MATERIALIZED (
+          SELECT e.id FROM sequence_enrollments e
+          WHERE e.id=${input.refreshHeld.enrollmentId}
+            AND e.contact_id=${input.contactId} AND e.sequence_id=${input.sequenceId}
+            AND e.status='paused' AND e.current_step=0 AND e.next_action_at IS NULL
+            AND e.metadata->>'canonicalPreparationId'=${String(intentId)}
+            AND NOT (COALESCE(e.metadata,'{}'::jsonb) ? 'canonicalRelease')
+            AND NOT EXISTS (SELECT 1 FROM outbound_send_log l WHERE l.sequence_enrollment_id=e.id)
+          FOR UPDATE OF e
+        )
+        UPDATE cr04_enrollment_intents i SET decision_id=${decision.id}::uuid,
+          preparation_snapshot=${JSON.stringify({ ...existing.preparation_snapshot, ...snapshot,
+            historicalCohortRunId: existing.preparation_snapshot?.historicalCohortRunId ?? null })}::jsonb
+        FROM held_member h
+        WHERE i.id=${intentId}::uuid AND i.preparation_state='ready_held' AND h.id=i.enrollment_id
+        RETURNING i.id
+      `));
+      if (!updated.length) return held("ORIGINAL_MEMBERSHIP_NOT_HELD_UNSENT");
+      if (input.beforeWrite) await input.beforeWrite(tx);
+      return { replayed: true, blocked: false, intentId: String(intentId),
+        enrollmentId: input.refreshHeld.enrollmentId, preparationState, reasonCode, decision, outboundAuthorized: false };
+    }
     // Changed addresses must not retain a useful slot or dispatchable membership
     // for the superseded address. Only this owner's paused membership is retired.
     await tx.execute(sql`UPDATE sequence_enrollments se SET status='cancelled',updated_at=NOW()
@@ -324,23 +373,6 @@ async function prepareCanonicalRecipientPass(input: CanonicalPreparationInput) {
         reasonCode = "JOURNEY_ALREADY_STARTED_FOR_THIS_RECIPIENT";
       }
     }
-    const intentId = existing?.id ?? randomUUID();
-    const snapshot = {
-      programId: String(binding.program_id), policyVersion: binding.policy_version,
-      packageVersionId: binding.package_id, contentHash: binding.content_hash,
-      explicitSequenceBinding: binding.trigger_config,
-      sequenceId: input.sequenceId, businessId: Number(business.id), contactId: input.contactId,
-      canonicalVertical: business.vertical, geography,
-      businessSourceFingerprint: business.source_fingerprint,
-      emailMutationGeneration: contact.email_mutation_generation,
-      channelDecisionId: decision.id, validationOperationId: receipt?.operationId ?? null,
-      channelQualificationReasons:decision.reasonCodes,channelQualified:decision.qualified,
-      originalObservedAt: receipt?.observedAt ?? null, originalExpiresAt: receipt?.expiresAt ?? null,
-      validationPolicyDocumentId: policy.id, validationPolicyHash: policy.documentHash,
-      historicalCohortRunId: input.historicalCohortRunId ?? null,
-      source: input.source, outboundAuthorized: false,
-    };
-    lap("tx_snapshot_build");
     await tx.execute(sql`
       INSERT INTO cr04_enrollment_intents
         (id,idempotency_key,contact_id,sequence_id,channel,source,actor_id,decision_id,

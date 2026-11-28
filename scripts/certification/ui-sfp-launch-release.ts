@@ -261,7 +261,7 @@ try {
   check(!(await browser!.evaluate(`!!document.querySelector('[data-testid="release-panel"]')`)), "A manager sees no release controls");
   await shot("09-manager-read-only");
   for (const [method, p] of [["POST", "/api/canonical-enrichment/release/preview"], ["POST", "/api/canonical-enrichment/release/execute"], ["POST", "/api/canonical-enrichment/release/message-preview"],
-    ["POST", "/api/canonical-enrichment/release/revoke"], ["PUT", "/api/canonical-enrichment/release/policy"],
+    ["POST", "/api/canonical-enrichment/release/refresh-held"], ["POST", "/api/canonical-enrichment/release/revoke"], ["PUT", "/api/canonical-enrichment/release/policy"],
     ["POST", "/api/canonical-enrichment/release/enrollments/1/resolve"]] as const) {
     check((await h.request("manager", method, p, {})).status === 403, `Manager ${method} ${p.split("/release")[1] || "/release"} is refused with 403`);
     check((await h.request("agent", method, p, {})).status === 403, `Agent ${method} ${p.split("/release")[1] || "/release"} is refused with 403`);

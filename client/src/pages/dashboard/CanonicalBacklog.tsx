@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { ReleaseRecipientReview, type ReleaseReviewRecipient } from "@/components/dashboard/ReleaseRecipientReview";
+import { TargetedHeldRefresh } from "@/components/dashboard/TargetedHeldRefresh";
 import { ReadProgress } from "@/components/crm/ReadProgress";
 import { describeInventoryProgress } from "@/lib/read-progress";
 import { NamedDisclosure, PopulationStagesGuide } from "@/components/crm/CountContractCard";
@@ -425,6 +426,7 @@ function ReleasePanel() {
               {preview.reviewRecipients && <ReleaseRecipientReview key={preview.commandKey} recipients={preview.reviewRecipients} />}
             </>
           )}
+          <TargetedHeldRefresh onStart={() => setPreview(null)} />
         </>
       )}
     </div>

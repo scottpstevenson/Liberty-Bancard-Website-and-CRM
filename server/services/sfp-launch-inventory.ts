@@ -381,6 +381,24 @@ export async function verifyRecipientBinding(
   return { ok: true, reason: null, bindingHash: row.bindingHash, binding: row.binding, evidence: row.evidence };
 }
 
+/** Review one existing held membership without selecting a substitute for its business or address. */
+export async function readHeldRecipientForReview(intentId: string, enrollmentId: number) {
+  const { results } = await evaluateLaunchRows({ intentIds: [intentId] });
+  const row = results[0];
+  if (!row || row.state !== "ready_held" || row.enrollmentId !== enrollmentId || row.sequenceId === null) {
+    return { recipient: null, reason: "This enrollment no longer has an owned, ready-held preparation." };
+  }
+  if (row.failure) return { recipient: null, reason: labelFor(row.failure.code) };
+  return { recipient: qualifiedRecipient(row), reason: null };
+}
+
+function qualifiedRecipient(row: Row): QualifiedReadyHeldRecipient {
+  return { intentId: row.id, enrollmentId: row.enrollmentId!, contactId: row.contactId,
+    businessId: row.businessId, sequenceId: row.sequenceId!, county: row.county ? (COUNTY_NAMES[row.county] ?? row.county) : null,
+    vertical: row.vertical, kind: row.kind, currentStep: row.currentStep, emailHash: row.emailHash,
+    binding: row.binding, bindingHash: row.bindingHash, evidence: row.evidence };
+}
+
 /** Count one qualified primary recipient per business using the release inventory's gates. */
 export async function countDiscoveryQualifiedPrimaries(intentIds: string[]) {
   if (intentIds.length === 0) return 0;
@@ -674,8 +692,5 @@ export async function selectPrimaryRecipients(
     if (lazy) { await applyContactPolicy(r); if (r.failure) continue; }
     businesses.add(r.businessId); addresses.add(r.emailHash); chosen.push(r);
   }
-  return { primaryCandidates, chosen: chosen.map(r => ({ intentId: r.id, enrollmentId: r.enrollmentId!, contactId: r.contactId,
-    businessId: r.businessId, sequenceId: r.sequenceId!, county: r.county ? (COUNTY_NAMES[r.county] ?? r.county) : null,
-    vertical: r.vertical, kind: r.kind, currentStep: r.currentStep, emailHash: r.emailHash, binding: r.binding,
-    bindingHash: r.bindingHash, evidence: r.evidence })) };
+  return { primaryCandidates, chosen: chosen.map(qualifiedRecipient) };
 }

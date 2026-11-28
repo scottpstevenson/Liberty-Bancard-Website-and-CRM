@@ -6,6 +6,7 @@ import { LaunchInventoryDeadlineError, readLaunchInventoryProgress, readSfpLaunc
 import type { Express } from "express";
 import { z } from "zod";
 import { readReleaseReviewMessage, ReleaseReviewChangedError } from "../services/sfp-release-review";
+import { HeldRefreshRequiresPause, refreshHeldSfpRecipient } from "../services/sfp-held-recipient-refresh";
 import { isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { readCanonicalEnrichmentStatus } from "../services/canonical-enrichment-status";
 import { BacklogDeadlineError, readCanonicalEnrichmentBacklog } from "../services/canonical-enrichment-backlog";
@@ -197,6 +198,25 @@ export function registerCanonicalEnrichmentRoutes(app: Express) {
       res.set("Cache-Control", "no-store");
       res.json(await previewCanonicalRelease(Number(req.body?.limit), undefined, { includeReview: true }));
     } catch (error) { releaseError(res, error); }
+  });
+  app.post("/api/canonical-enrichment/release/refresh-held", isDashboardUser, requireRole("admin"), async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    const input = z.object({ enrollmentId: z.number().int().positive().max(2147483647) }).strict().safeParse(req.body);
+    if (!input.success) return res.status(400).json({ message: "Enter an existing enrollment ID." });
+    try {
+      const result = await refreshHeldSfpRecipient(input.data.enrollmentId, actor(req));
+      const audit = result.refreshed ? await auditCommittedEffect({
+        action: "sfp_held_package_refreshed", entityType: "sequence_enrollment",
+        entityKey: String(result.enrollmentId), userId: actor(req), details: { verified: Boolean(result.reviewRecipient) },
+      }, "held package refresh") : null;
+      res.json({ ...result, audit });
+    } catch (error) {
+      if (error instanceof HeldRefreshRequiresPause) {
+        return res.status(409).json({ message: "Outbound must be paused to refresh held recipients." });
+      }
+      logReadFailure("held package refresh", error, Date.now());
+      res.status(503).json({ message: "Refresh could not be confirmed. Retry this enrollment to check its current version." });
+    }
   });
   app.post("/api/canonical-enrichment/release/message-preview", isDashboardUser, requireRole("admin"), async (req, res) => {
     res.set("Cache-Control", "no-store");

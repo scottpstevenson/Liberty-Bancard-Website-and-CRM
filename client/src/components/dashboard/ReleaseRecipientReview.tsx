@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -28,8 +28,8 @@ interface ReviewMessage {
   error: { detail: string } | null;
 }
 
-function RecipientMessage({ recipient }: { recipient: ReleaseReviewRecipient }) {
-  const [copy, setCopy] = useState<ReviewCopy>("premium_draft");
+function RecipientMessage({ recipient, initialCopy }: { recipient: ReleaseReviewRecipient; initialCopy: ReviewCopy }) {
+  const [copy, setCopy] = useState<ReviewCopy>(initialCopy);
   const [stepOrder, setStepOrder] = useState<number>();
   const { enrollmentId, bindingHash, currentStep } = recipient;
   const message = useQuery<ReviewMessage>({
@@ -76,12 +76,15 @@ function RecipientMessage({ recipient }: { recipient: ReleaseReviewRecipient }) 
   );
 }
 
-export function ReleaseRecipientReview({ recipients }: { recipients: ReleaseReviewRecipient[] }) {
+export function ReleaseRecipientReview({ recipients, verifiedSubjects }: {
+  recipients: ReleaseReviewRecipient[]; verifiedSubjects?: ReadonlyMap<number, string>;
+}) {
+  const headingId = useId();
   const [selected, setSelected] = useState<ReleaseReviewRecipient | null>(null);
   if (recipients.length === 0) return null;
   return (
-    <section className="mt-4 space-y-2" aria-labelledby="release-recipient-heading" data-testid="release-recipient-roster">
-      <h3 id="release-recipient-heading" className="text-sm font-semibold">Selected recipients</h3>
+    <section className="mt-4 space-y-2" aria-labelledby={headingId} data-testid="release-recipient-roster">
+      <h3 id={headingId} className="text-sm font-semibold">{verifiedSubjects ? "Verified held recipients" : "Selected recipients"}</h3>
       <p className="text-xs text-muted-foreground">Open a recipient to compare personalized premium drafts and the current sequence.</p>
       <div className="max-h-[28rem] overflow-auto rounded-md border">
         <table className="w-full text-left text-sm">
@@ -94,6 +97,7 @@ export function ReleaseRecipientReview({ recipients }: { recipients: ReleaseRevi
                 <td className="px-3 py-2">
                   <p>{recipient.name ?? "Name unavailable"}</p>
                   <p className="break-all text-xs text-muted-foreground">{recipient.email}</p>
+                  <p className="text-xs text-muted-foreground">Enrollment {recipient.enrollmentId}</p>
                 </td>
                 <td className="px-3 py-2">
                   <p>{recipient.business}</p>
@@ -103,7 +107,10 @@ export function ReleaseRecipientReview({ recipients }: { recipients: ReleaseRevi
                   <p>{recipient.sequence}</p>
                   <p className="text-xs text-muted-foreground">{recipient.kind === "continuation" ? "Continuing" : "First email"} · Touch {recipient.currentStep + 1}</p>
                 </td>
-                <td className="px-3 py-2"><Button size="sm" variant="outline" aria-label={`Preview email for ${recipient.email}`} onClick={() => setSelected(recipient)}>Preview</Button></td>
+                <td className="px-3 py-2">
+                  {verifiedSubjects?.has(recipient.enrollmentId) && <p className="mb-1 text-xs">{verifiedSubjects.get(recipient.enrollmentId)}</p>}
+                  <Button size="sm" variant="outline" aria-label={`Preview email for ${recipient.email}`} onClick={() => setSelected(recipient)}>Preview</Button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -116,7 +123,7 @@ export function ReleaseRecipientReview({ recipients }: { recipients: ReleaseRevi
               <DialogTitle>Personalized email preview</DialogTitle>
               <DialogDescription>{selected.name ? `${selected.name} · ` : ""}{selected.business}</DialogDescription>
             </DialogHeader>
-            <RecipientMessage key={selected.enrollmentId} recipient={selected} />
+            <RecipientMessage key={selected.enrollmentId} recipient={selected} initialCopy={verifiedSubjects ? "current" : "premium_draft"} />
           </DialogContent>
         )}
       </Dialog>
