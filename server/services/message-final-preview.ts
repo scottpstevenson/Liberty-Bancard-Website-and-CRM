@@ -10,6 +10,7 @@
  * These are simulations: nothing is sent, stored, enqueued or booked, and the unsubscribe link is a sample.
  */
 import { imagesOffHtml, type FinalMessagePreview } from "./message-template-versions";
+import type { SfpLaunchRecipientFacts } from "./sfp-launch-render";
 
 export type StepPreviewTransport = "sfp_smtp" | "gmail_non_cold";
 /** The asset's reviewed purpose picks the signature the send path appends: sales content signs as sales, account-management content as accounts. */
@@ -28,14 +29,16 @@ export interface StepPreviewResult {
 type ComplianceLoader = () => Promise<{ ok: true; mailingAddress: string; unsubscribeUrl: string } | { ok: false; [k: string]: unknown }>;
 
 /** The SMTP transport's composition of an already-rendered HTML body: footer, text part, sender policy, headers. */
-async function composeSmtpFinal(subject: string, bodyHtml: string, name: "sfp_smtp" | "legacy_smtp", loader: ComplianceLoader, extraNote?: string): Promise<StepPreviewResult> {
+async function composeSmtpFinal(subject: string, bodyHtml: string, name: "sfp_smtp" | "legacy_smtp", loader: ComplianceLoader, extraNote?: string, personalized = false): Promise<StepPreviewResult> {
   const { renderEmailPartsForPurpose } = await import("./can-spam-footer");
   const { inspectPresentation } = await import("./email-presentation");
-  const { resolvePolicy } = await import("./sender-policy");
-  const policy = resolvePolicy("cold_outreach");
+  const { resolvePolicy, resolveSfpColdSenderPolicy } = await import("./sender-policy");
+  const policy = name === "sfp_smtp" ? resolveSfpColdSenderPolicy() : resolvePolicy("cold_outreach");
   let html = bodyHtml, text = "";
   let footer: FinalMessagePreview["footer"] = { state: "applied" };
-  let note = "Simulation: sample recipient, sample unsubscribe link. Nothing is sent or stored.";
+  let note = personalized
+    ? "Simulation with this recipient’s CRM details and a sample unsubscribe link."
+    : "Simulation: sample recipient, sample unsubscribe link. Nothing is sent or stored.";
   try {
     const parts = await renderEmailPartsForPurpose({ html: bodyHtml, purpose: "marketing_outreach", complianceLoader: loader as any });
     html = parts.html; text = parts.text;
@@ -96,39 +99,40 @@ async function composeGmailFinal(subject: string | null, withSignature: string, 
   };
 }
 
-export async function previewStepForTransport(input: { subject: string | null; body: string; transport: StepPreviewTransport; purpose?: StepPreviewPurpose; persona?: "populated"|"missing_name"|"missing_company" }): Promise<StepPreviewResult> {
-  const { renderEmailPartsForPurpose, renderEmailHtmlForPurpose } = await import("./can-spam-footer");
-  const { inspectPresentation } = await import("./email-presentation");
-  const { getCommercialComplianceConfig } = await import("./can-spam-footer");
-  const loader = async () => {
-    const real = await getCommercialComplianceConfig();
-    return real.ok ? { ok: true as const, mailingAddress: real.mailingAddress, unsubscribeUrl: "https://libertybancard.com/unsubscribe?t=SAMPLE-TOKEN" } : real;
-  };
-  const fail = (code: string, detail: string): StepPreviewResult => ({ ok: false, error: { code, detail }, final: null });
+export async function previewSfpStepForRecipient(
+  subject: string | null,
+  body: string,
+  recipient: SfpLaunchRecipientFacts,
+  personalized = true,
+): Promise<StepPreviewResult> {
+  const { sfpLaunchRenderContext, renderSfpLaunchSubject, renderSfpLaunchBodyHtml } = await import("./sfp-launch-render");
+  const { RenderError } = await import("./message-render");
+  const ctx = sfpLaunchRenderContext(recipient);
+  try {
+    return await composeSmtpFinal(
+      renderSfpLaunchSubject(subject, ctx), renderSfpLaunchBodyHtml(body, ctx),
+      "sfp_smtp", complianceLoader, undefined, personalized,
+    );
+  } catch (err) {
+    if (err instanceof RenderError) return { ok: false, error: { code: err.code, detail: err.detail.join(", ") }, final: null };
+    throw err;
+  }
+}
 
+export async function previewStepForTransport(input: { subject: string | null; body: string; transport: StepPreviewTransport; purpose?: StepPreviewPurpose; persona?: "populated"|"missing_name"|"missing_company" }): Promise<StepPreviewResult> {
   if (input.transport === "sfp_smtp") {
-    const { sfpLaunchRenderContext, renderSfpLaunchSubject, renderSfpLaunchBodyHtml } = await import("./sfp-launch-render");
-    const { resolvePolicy } = await import("./sender-policy");
-    const { RenderError } = await import("./message-render");
-    let subject: string, bodyHtml: string;
-    try {
-      const ctx = sfpLaunchRenderContext(input.persona==="missing_company"?{...SAMPLE,companyName:null}:input.persona==="missing_name"?{...SAMPLE,firstName:null,lastName:null}:SAMPLE);
-      subject = renderSfpLaunchSubject(input.subject, ctx);
-      bodyHtml = renderSfpLaunchBodyHtml(input.body, ctx);
-    } catch (err) {
-      if (err instanceof RenderError) return fail(err.code, err.detail.join(", "));
-      throw err;
-    }
-    return composeSmtpFinal(subject, bodyHtml, "sfp_smtp", loader);
+    const recipient = input.persona === "missing_company" ? { ...SAMPLE, companyName: null }
+      : input.persona === "missing_name" ? { ...SAMPLE, firstName: null, lastName: null } : SAMPLE;
+    return previewSfpStepForRecipient(input.subject, input.body, recipient, false);
   }
 
   // gmail_non_cold: the worker interpolates, appends one account-relationship signature, and Gmail composes the footer.
   const { previewMessage } = await import("./message-token-registry");
   const { getEmailSignatureHtml } = await import("./email-signatures");
   const preview = previewMessage("template", { subject: input.subject, body: input.body }, "html");
-  if (preview.renderError) return fail(preview.renderError.code, preview.renderError.detail.join(", "));
+  if (preview.renderError) return { ok: false, error: { code: preview.renderError.code, detail: preview.renderError.detail.join(", ") }, final: null };
   const withSignature = `${preview.body}${getEmailSignatureHtml(input.purpose === "sales" ? "sales" : "accounts")}`;
-  return composeGmailFinal(preview.subject, withSignature, loader);
+  return composeGmailFinal(preview.subject, withSignature, complianceLoader);
 }
 
 export interface AssetStepPreviewInput {

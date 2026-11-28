@@ -4,6 +4,7 @@
  * Nothing here adds a signature or a CTA: a message keeps the signature its sending family chose.
  */
 const SIGNATURE_BLOCK_RE = /<div\b[^>]*\bdata-liberty-signature\b[^>]*>[\s\S]*?<\/div>/gi;
+const SFP_SIGNATURE_BLOCK_RE = /<div\b[^>]*\bdata-sfp-signature\b[^>]*>/gi;
 const FOOTER_RE = /<div\b[^>]*\bdata-can-spam-footer\b[^>]*>/gi;
 const LEGACY_SIGNATURE_RE = /1-?\(?\d{3}\)?[-\s.]\d{3}[-\s.]\d{4}|954-266-8214/;
 
@@ -15,7 +16,7 @@ export interface PresentationFacts {
 }
 
 export function inspectPresentation(html: string): PresentationFacts {
-  const marked = (html.match(SIGNATURE_BLOCK_RE) ?? []).length;
+  const marked = (html.match(SIGNATURE_BLOCK_RE) ?? []).length + (html.match(SFP_SIGNATURE_BLOCK_RE) ?? []).length;
   const logos = (html.match(/<img\b[^>]*(?:logo|alt\s*=\s*"Liberty Bancard")[^>]*>/gi) ?? []).length;
   const unmarked = marked === 0 && LEGACY_SIGNATURE_RE.test(html.replace(/<[^>]+>/g, " "));
   return {

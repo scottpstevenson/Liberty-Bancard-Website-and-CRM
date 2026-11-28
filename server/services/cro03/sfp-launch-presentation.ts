@@ -10,8 +10,10 @@
  * presentation stop matching and must be refreshed and re-approved.
  */
 import { createHash } from "node:crypto";
+import { PUBLIC_CONTACT_CHANNELS } from "@shared/public-contact-content";
 
-export const SFP_LAUNCH_PRESENTATION_VERSION = "sfp-launch-presentation-2026-10-19.1";
+export const SFP_LAUNCH_PRESENTATION_VERSION = "sfp-launch-presentation-2026-11-27.1";
+export const SFP_LAUNCH_PHONE = PUBLIC_CONTACT_CHANNELS.phone.display;
 export const SFP_LAUNCH_SITE_HOST = "libertybancard.com";
 /** The only host a launch body may link to (the signature link, logo and secure upload page all live on it). */
 export const SFP_LAUNCH_ALLOWED_HOSTS = [SFP_LAUNCH_SITE_HOST];
@@ -63,7 +65,7 @@ export function applySfpLaunchPresentationText(bodyText: string, facts: SfpSigna
  * markup, logo, alt text, links or version string changes it without a separate manual bump.
  */
 export function sfpLaunchPresentationFingerprint(): string {
-  const probe = { agentName: "Probe Sender", agentPhone: "000-000-0000" };
+  const probe = { agentName: "Probe Sender", agentPhone: SFP_LAUNCH_PHONE };
   return createHash("sha256").update(JSON.stringify([
     SFP_LAUNCH_PRESENTATION_VERSION, renderSfpLaunchSignatureHtml(probe), renderSfpLaunchSignatureText(probe),
   ])).digest("hex");

@@ -55,11 +55,11 @@ try {
         const first = s.stepOrder === 1;
         assert(s.text.includes(content.SFP_SECURE_UPLOAD_URL) === !first, `${key}/${audience}/${s.stepOrder}: upload CTA only in follow-ups`);
         assert((s.text.match(/https?:\/\//g) ?? []).length === (first ? 0 : 1), `${key}/${audience}/${s.stepOrder}: URL count`);
-        assert(/Scott Stevenson\nLiberty Bancard\n954-266-8214 \| libertybancard\.com$/.test(s.text), `${key}/${audience}/${s.stepOrder}: single polished signature (text)`);
+        assert(/Scott Stevenson\nLiberty Bancard\n786-375-9726 \| libertybancard\.com$/.test(s.text), `${key}/${audience}/${s.stepOrder}: single polished signature (text)`);
         assert((s.text.match(/Liberty Bancard/g) ?? []).length === 1 + Number(/Liberty Bancard about/.test(s.text)), `${key}/${audience}/${s.stepOrder}: one signature in text`);
         assert((s.html.match(/data-sfp-signature/g) ?? []).length === 1, `${key}/${audience}/${s.stepOrder}: one signature block in html`);
         assert(!/data-can-spam-footer/.test(s.html), `${key}/${audience}/${s.stepOrder}: no footer in the rendered body (transport adds the one footer)`);
-        assert(s.html.indexOf("<img") > s.html.indexOf("954-266-8214") && s.html.includes('alt="Liberty Bancard logo"') && (s.html.match(/<img/g) ?? []).length === 1,
+        assert(s.html.indexOf("<img") > s.html.indexOf("786-375-9726") && s.html.includes('alt="Liberty Bancard logo"') && (s.html.match(/<img/g) ?? []).length === 1,
           `${key}/${audience}/${s.stepOrder}: single logo beneath the signature with alt text`);
         assert(first ? !s.html.includes("upload-statement") : s.html.includes(`<a href="${content.SFP_SECURE_UPLOAD_URL}">`), `${key}/${audience}/${s.stepOrder}: link rendered where expected`);
         assert(!/\{\{|\}\}|undefined/.test(s.html + s.text + s.subject), `${key}/${audience}/${s.stepOrder}: no unresolved placeholders`);

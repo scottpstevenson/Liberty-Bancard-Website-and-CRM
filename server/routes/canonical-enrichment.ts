@@ -4,6 +4,8 @@ import {
 } from "../services/sfp-canonical-release";
 import { LaunchInventoryDeadlineError, readLaunchInventoryProgress, readSfpLaunchInventory } from "../services/sfp-launch-inventory";
 import type { Express } from "express";
+import { z } from "zod";
+import { readReleaseReviewMessage, ReleaseReviewChangedError } from "../services/sfp-release-review";
 import { isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { readCanonicalEnrichmentStatus } from "../services/canonical-enrichment-status";
 import { BacklogDeadlineError, readCanonicalEnrichmentBacklog } from "../services/canonical-enrichment-backlog";
@@ -124,6 +126,7 @@ export function registerCanonicalEnrichmentRoutes(app: Express) {
   // are admin-only and audit-logged. None of these lift the outbound pause.
   const actor = (req: any) => String(req.user?.id ?? req.user?.email ?? "unknown");
   const releaseError = (res: any, error: unknown) => {
+    if (error instanceof ReleaseReviewChangedError) return res.status(409).json({ code: "RELEASE_REVIEW_CHANGED", message: error.message });
     if (error instanceof CanonicalReleaseError) return res.status(error.status).json({ code: error.code, message: error.message });
     return res.status(503).json({ code: "RELEASE_UNCONFIRMED", message: "The release request could not be confirmed. It may or may not have committed: check the release status before doing anything else. Repeating the same request is safe because it replays the same release; do not start a different one until you have checked." });
   };
@@ -192,7 +195,21 @@ export function registerCanonicalEnrichmentRoutes(app: Express) {
   app.post("/api/canonical-enrichment/release/preview", isDashboardUser, requireRole("admin"), async (req, res) => {
     try {
       res.set("Cache-Control", "no-store");
-      res.json(await previewCanonicalRelease(Number(req.body?.limit)));
+      res.json(await previewCanonicalRelease(Number(req.body?.limit), undefined, { includeReview: true }));
+    } catch (error) { releaseError(res, error); }
+  });
+  app.post("/api/canonical-enrichment/release/message-preview", isDashboardUser, requireRole("admin"), async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    const input = z.object({
+      enrollmentId: z.number().int().positive().max(2147483647),
+      bindingHash: z.string().regex(/^[0-9a-f]{64}$/),
+      currentStep: z.number().int().nonnegative(),
+      copy: z.enum(["current", "premium_draft"]),
+      stepOrder: z.number().int().positive().optional(),
+    }).safeParse(req.body);
+    if (!input.success) return res.status(400).json({ code: "RELEASE_MESSAGE_INPUT_INVALID", message: "Choose a recipient from the release preview." });
+    try {
+      res.json(await readReleaseReviewMessage(input.data));
     } catch (error) { releaseError(res, error); }
   });
   app.post("/api/canonical-enrichment/release/execute", isDashboardUser, requireRole("admin"), async (req, res) => {

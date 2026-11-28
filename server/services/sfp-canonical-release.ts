@@ -29,6 +29,8 @@ import {
 import { preparedFactsCurrentSql } from "./canonical-recipient-preparation";
 import { readSenderCapacity, type SenderCapacity } from "./sfp-sender-capacity";
 
+import { readReleaseReviewRecipients, type ReleaseReviewRecipient } from "./sfp-release-review";
+
 export const CANONICAL_RELEASE_CONTROL_KEY = "sfp_canonical_release_control";
 export const CANONICAL_RELEASE_POLICY_KEY = "sfp_canonical_release_policy";
 const LOCK_KEY = "sfp-canonical-release";
@@ -264,6 +266,7 @@ export interface CanonicalReleasePreview {
   continuations: number;
   recipients: Array<Pick<QualifiedReadyHeldRecipient, "enrollmentId" | "businessId" | "county" | "vertical" | "sequenceId" | "kind" | "currentStep">
     & { bindingHash: string }>;
+  reviewRecipients?: ReleaseReviewRecipient[];
   policy: CanonicalReleasePolicy;
   capacity: SenderCapacity | null;
   releases: ReleaseRecord[];
@@ -328,13 +331,16 @@ async function selectForRelease(requestedLimit: number, deps?: CanonicalReleaseD
 const snapshotOf = (chosen: QualifiedReadyHeldRecipient[], requestedLimit: number) =>
   sha({ items: chosen.map(c => [c.enrollmentId, c.intentId, c.sequenceId, c.kind, c.currentStep, c.bindingHash]), requestedLimit });
 
-export async function previewCanonicalRelease(requestedLimit: number, deps?: CanonicalReleaseDeps): Promise<CanonicalReleasePreview> {
+export async function previewCanonicalRelease(
+  requestedLimit: number, deps?: CanonicalReleaseDeps, options?: { includeReview: boolean },
+): Promise<CanonicalReleasePreview> {
   const [{ policy, qualified, capacity, capacityDetail, chosen }, control] = await Promise.all([selectForRelease(requestedLimit, deps), readCanonicalReleaseControl()]);
   return {
     snapshotHash: snapshotOf(chosen, requestedLimit), size: chosen.length, requestedLimit, dailyCapacityRemaining: capacity,
     qualifiedPrimaryRecipients: qualified, continuations: chosen.filter(c => c.kind === "continuation").length,
     recipients: chosen.map(c => ({ enrollmentId: c.enrollmentId, businessId: c.businessId, county: c.county, vertical: c.vertical,
       sequenceId: c.sequenceId, kind: c.kind, currentStep: c.currentStep, bindingHash: c.bindingHash })),
+    ...(options?.includeReview ? { reviewRecipients: await readReleaseReviewRecipients(chosen) } : {}),
     policy, capacity: capacityDetail, releases: control.releases,
     notes: [
       "Primary candidates pass every recorded-fact check. Consent, hygiene and send policy is re-run for the selected recipients, here and again at execution and at every send.",

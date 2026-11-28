@@ -273,7 +273,7 @@ const norm = msg.all.replace(/\r\n/g, "\n");
 const occurs = (re: RegExp) => (norm.match(re) ?? []).length;
 check(/^"?Scott Stevenson"?\s*</.test(msg.header("From") ?? ""), "The From display name is Scott Stevenson");
 check(occurs(/data-sfp-signature/g) === 1 && occurs(/data-can-spam-footer/g) === 1, "The HTML part has one signature and one transport footer");
-check(occurs(/\[CAN-SPAM-FOOTER\]/g) === 1 && occurs(/Scott Stevenson\nLiberty Bancard\n954-266-8214 \| libertybancard\.com/g) === 1, "The plain-text part has one signature and one transport footer");
+check(occurs(/\[CAN-SPAM-FOOTER\]/g) === 1 && occurs(/Scott Stevenson\nLiberty Bancard\n786-375-9726 \| libertybancard\.com/g) === 1, "The plain-text part has one signature and one transport footer");
 check(occurs(/<img\b/g) === 1 && msg.all.includes('src="https://libertybancard.com/logo-blue.png"') && msg.all.includes('alt="Liberty Bancard logo"'), "One small existing logo with descriptive alt text");
 check(msg.all.indexOf("<img") > msg.all.indexOf("data-sfp-signature") && msg.all.indexOf("<img") < msg.all.indexOf("data-can-spam-footer"), "The logo sits beneath the signature and above the transport footer");
 check(!/\{\{|\}\}|undefined|\[object/.test(msg.all), "No unresolved placeholders reach the recipient");

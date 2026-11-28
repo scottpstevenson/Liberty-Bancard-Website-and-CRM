@@ -4,7 +4,7 @@
  */
 import { renderTemplate, plainHtmlToEmailHtml } from "./message-render";
 import { resolveSfpColdSenderPolicy } from "./sender-policy";
-import { SFP_LAUNCH_ALLOWED_HOSTS, applySfpLaunchPresentation } from "./cro03/sfp-launch-presentation";
+import { SFP_LAUNCH_ALLOWED_HOSTS, SFP_LAUNCH_PHONE, applySfpLaunchPresentation } from "./cro03/sfp-launch-presentation";
 
 export interface SfpLaunchRecipientFacts {
   firstName?: string | null; lastName?: string | null; companyName?: string | null; email?: string | null;
@@ -15,7 +15,7 @@ export function sfpLaunchRenderContext(contact: SfpLaunchRecipientFacts | null |
   return {
     firstName: contact?.firstName ?? null, lastName: contact?.lastName ?? null,
     companyName: contact?.companyName ?? null, email: contact?.email ?? null,
-    agentName: sender.displayName, agentEmail: sender.replyTo, agentPhone: "954-266-8214",
+    agentName: sender.displayName, agentEmail: sender.replyTo, agentPhone: SFP_LAUNCH_PHONE,
   };
 }
 

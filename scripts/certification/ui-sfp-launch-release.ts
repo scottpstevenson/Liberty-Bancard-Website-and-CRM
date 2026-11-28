@@ -94,6 +94,8 @@ try {
     enrollmentIds.push(Number(prepared.enrollmentId));
   }
   await pool.query("DELETE FROM system_settings WHERE key=$1", [release.CANONICAL_RELEASE_CONTROL_KEY]);
+  await pool.query(`INSERT INTO system_settings (key,value) VALUES ('compliance_mailing_address',to_jsonb('100 Certification Way, Miami, FL 33101'::text))
+    ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`);
 
   const open = async (role: "admin" | "manager") => {
     if (browser) await browser.close();
@@ -139,6 +141,32 @@ try {
   await clickText("^Preview$");
   await waitPanel(/2 selected of 3 primary candidates/);
   check(/2 messages of sender capacity/.test(await panelText()), "Preview is bounded by actual sender capacity, not an arbitrary count");
+  const preview = (await h.request("admin", "POST", "/api/canonical-enrichment/release/preview", { limit: 50 })).body;
+  check(preview.reviewRecipients?.length === 2 && preview.reviewRecipients.every((r: any) => r.name === "Maria Lopez" && r.email && r.sequence === prefix),
+    "The roster exposes the selected contact, exact address and sequence to an administrator");
+  const selected = preview.reviewRecipients[0];
+  const input = { enrollmentId: selected.enrollmentId, bindingHash: selected.bindingHash, currentStep: selected.currentStep };
+  const endpoint = "/api/canonical-enrichment/release/message-preview";
+  const premium = (await h.request("admin", "POST", endpoint, { ...input, copy: "premium_draft" })).body;
+  check(premium.to === selected.email && premium.steps.map((s: any) => s.day).join(",") === "0,3,7,12,18"
+    && premium.final.subject.startsWith("Card processing at " + selected.business),
+    "Premium preview uses the selected business and all five draft touch days");
+  check(premium.final.html.includes("Hi Maria,") && premium.final.html.includes("786-375-9726")
+    && premium.final.logoCount === 1 && premium.final.signatureCount === 1 && premium.final.footerCount === 1,
+    "Personalized HTML uses one signature, the 786 number, one Liberty logo and a sample footer");
+  const current = (await h.request("admin", "POST", endpoint, { ...input, copy: "current" })).body;
+  check(current.steps.map((s: any) => s.day).join(",") === "0,3,8" && current.final.subject.startsWith("Payment processing at "),
+    "Current and draft previews use their respective stored and proposed copy");
+  check((await h.request("admin", "POST", endpoint, { ...input, copy: "premium_draft", bindingHash: "a".repeat(64) })).status === 409,
+    "A changed recipient binding returns no personalized preview");
+  check((await pool.query("SELECT value FROM system_settings WHERE key=$1", [release.CANONICAL_RELEASE_CONTROL_KEY])).rowCount === 0,
+    "Reviewing a roster and emails creates no release");
+  check(await browser!.evaluate(`document.querySelectorAll('[data-testid="release-recipient-row"]').length === 2`), "The release panel lists both selected recipients");
+  await browser!.evaluate(`document.querySelector('[data-testid="release-recipient-row"] button').click()`);
+  await browser!.waitFor(/Personalized email preview/);
+  await browser!.waitFor(/Card processing at/);
+  check(/A release uses the currently published sequence/.test(await browser!.text()), "The recipient preview labels the premium copy as a draft");
+  await browser!.evaluate(`document.querySelector('[role="dialog"] button:has(.sr-only)').click()`);
   await shot("02-admin-preview");
   await clickText("^Release 2 recipients$");
   await waitPanel(/open until/);
@@ -232,7 +260,7 @@ try {
   check(/Launch inventory/.test(mgr), "A manager can read the launch inventory");
   check(!(await browser!.evaluate(`!!document.querySelector('[data-testid="release-panel"]')`)), "A manager sees no release controls");
   await shot("09-manager-read-only");
-  for (const [method, p] of [["POST", "/api/canonical-enrichment/release/preview"], ["POST", "/api/canonical-enrichment/release/execute"],
+  for (const [method, p] of [["POST", "/api/canonical-enrichment/release/preview"], ["POST", "/api/canonical-enrichment/release/execute"], ["POST", "/api/canonical-enrichment/release/message-preview"],
     ["POST", "/api/canonical-enrichment/release/revoke"], ["PUT", "/api/canonical-enrichment/release/policy"],
     ["POST", "/api/canonical-enrichment/release/enrollments/1/resolve"]] as const) {
     check((await h.request("manager", method, p, {})).status === 403, `Manager ${method} ${p.split("/release")[1] || "/release"} is refused with 403`);

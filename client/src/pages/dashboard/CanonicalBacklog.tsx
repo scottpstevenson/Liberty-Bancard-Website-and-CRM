@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { ReleaseRecipientReview, type ReleaseReviewRecipient } from "@/components/dashboard/ReleaseRecipientReview";
 import { ReadProgress } from "@/components/crm/ReadProgress";
 import { describeInventoryProgress } from "@/lib/read-progress";
 import { NamedDisclosure, PopulationStagesGuide } from "@/components/crm/CountContractCard";
@@ -267,7 +268,7 @@ interface ReleaseStatus {
 }
 interface ReleasePreview {
   commandKey?: string; snapshotHash: string; size: number; dailyCapacityRemaining: number; qualifiedPrimaryRecipients: number;
-  continuations: number; notes: string[];
+  continuations: number; notes: string[]; reviewRecipients?: ReleaseReviewRecipient[];
 }
 const JOURNEY_LABELS: Record<string, string> = {
   in_progress: "In progress", journey_expired: "Journey period ended (can be continued)", package_content_changed: "Held: content changed (can be continued)",
@@ -281,7 +282,7 @@ const HOLD_LABELS: Record<string, string> = {
 function ReleasePanel() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(50);
   const [hours, setHours] = useState(24);
   const [preview, setPreview] = useState<ReleasePreview | null>(null);
   // A repeated request is answered with the release it already created. That is shown as its own persistent
@@ -406,7 +407,7 @@ function ReleasePanel() {
               <label className="text-sm"><span className="mb-1 block text-xs text-muted-foreground">Admission window, hours (1–{maxHours})</span>
                 <input type="number" min={1} max={maxHours} value={hours} onChange={e => setHours(Number(e.target.value))}
                   className="w-24 rounded-md border border-input bg-background px-2 py-1.5 text-sm" /></label>
-              <Button variant="outline" size="sm" onClick={() => previewMutation.mutate()} disabled={previewMutation.isPending}>Preview</Button>
+              <Button variant="outline" size="sm" onClick={() => { setPreview(null); previewMutation.mutate(); }} disabled={previewMutation.isPending}>Preview</Button>
               {preview && (
                 <Button size="sm" onClick={() => executeMutation.mutate()} disabled={executeMutation.isPending || preview.size === 0}>
                   Release {n(preview.size)} recipient{preview.size === 1 ? "" : "s"}
@@ -416,10 +417,13 @@ function ReleasePanel() {
           </div>
           {status.admissionOpen && <p className="mt-2 text-xs text-muted-foreground">A new release can be made once the admission window closes or the release is revoked.</p>}
           {preview && !status.admissionOpen && (
-            <p className="mt-2 text-xs text-muted-foreground" data-testid="release-preview">
-              {n(preview.size)} selected of {n(preview.qualifiedPrimaryRecipients)} primary candidates
-              {preview.continuations > 0 ? ` (${n(preview.continuations)} continuing an earlier journey)` : ""}; {n(preview.dailyCapacityRemaining)} messages of sender capacity can still be admitted today.
-            </p>
+            <>
+              <p className="mt-2 text-xs text-muted-foreground" data-testid="release-preview">
+                {n(preview.size)} selected of {n(preview.qualifiedPrimaryRecipients)} primary candidates
+                {preview.continuations > 0 ? ` (${n(preview.continuations)} continuing an earlier journey)` : ""}; {n(preview.dailyCapacityRemaining)} messages of sender capacity can still be admitted today.
+              </p>
+              {preview.reviewRecipients && <ReleaseRecipientReview key={preview.commandKey} recipients={preview.reviewRecipients} />}
+            </>
           )}
         </>
       )}
